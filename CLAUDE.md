@@ -126,44 +126,73 @@ classifier, so the "contested" pool doesn't become a magnet for abuse
 
 ## Web app architecture (decided)
 
-Two-phase plan, not one framework choice:
+**Detached client/server split from day one.** No server-rendered
+prototype phase — the earlier two-phase plan (Flask + Jinja2 first, detach
+later) was reconsidered and dropped. Building the SSR version only to throw
+it away was wasted work, and keeping business logic "template-friendly just
+in case" was a drag on the design. Go straight to the real architecture.
 
-- **Phase 1 — prototype**: server-rendered. Flask + Jinja2 templates, full
-  page reloads, session-cookie auth (`Flask-Login` + `werkzeug.security`
-  password hashing). Goal is the fastest path to a real, working
-  accounts + uploads + feed slice to validate the core mechanic with real
-  users before investing in a richer frontend.
-- **Phase 2 — final app**: detach the frontend. A separate JS framework
-  (React/Vue/Svelte — not yet chosen) consuming a JSON API served by the
-  Python backend, replacing the Jinja-rendered pages. Decided specifically
-  for smooth infinite-scroll feed interactions — considered a key part of
-  the app's feel given the consensus/contested/exploration feed design
-  above — and it also opens the door to a future mobile app reusing the
-  same API.
+**Built and integrated** — `server/` (Flask JSON API) and `web/`
+(SvelteKit) run as one app. See the root `README.md` to run both
+(`scripts/dev.*`), plus `server/README.md` / `web/README.md` for detail.
+Accounts, upload→gate, captions, the feed, ratings, and a `/me` page are
+all wired to the real API. Feed ranking is still a newest-first
+placeholder, not the three-pool blend — see `nubbins.md`.
 
-Implication for Phase 1 build-out: keep business logic (gate checks,
-rating writes, feed queries) separate from template-rendering code where
-practical, so routes can migrate toward returning JSON in Phase 2 without
-a full rewrite.
+**Feed UI direction (decided):** the "Stream" layout — social-app-first,
+images lead, one column, rate in place. Look is deliberately plain
+old-web / "HTML energy", NOT modern-minimalist; hand-written CSS, no CSS
+framework (Simple.css was tried and dropped). The UI must **not** surface
+the drift mechanism — no "contested/consensus" labels, variance, or
+"state of horse" analytics; the emergent behaviour only works if the app
+doesn't point at it. Ported into the Svelte routes; all styling is one
+global hand-written sheet at `web/src/app.css`. The `web/prototypes/*.html`
+mockups it came from are kept as reference only.
 
-Open question, not yet decided: Phase 1's simple session-cookie auth
-likely won't carry over cleanly to Phase 2 — a cross-origin SPA + API
-split typically needs token-based auth (e.g. JWT) or careful cross-site
-cookie config (CORS, SameSite). Revisit when Phase 2 actually starts.
+- **Backend**: Python, serving a JSON API only — no HTML rendering. Flask
+  (still the pick over FastAPI: CLIP inference is CPU-bound/blocking so
+  async buys nothing; Flask over Django to avoid the upfront ceremony for
+  a first webapp). Business logic (gate checks, rating writes, feed
+  queries) lives in plain modules the API layer calls — no framework
+  lock-in.
+- **Frontend**: **Svelte (SvelteKit)**, consuming the JSON API. Chosen for
+  the smallest learning curve from plain HTML/CSS/JS (operator is new to
+  frontend frameworks), minimal boilerplate for a solo-maintained
+  codebase, and strong built-ins (scoped styles, stores, transitions,
+  routing) that suit a feed-driven app with a playful identity. Handles
+  the smooth infinite-scroll feed (consensus/contested/exploration design
+  above) via `@tanstack/svelte-query` + `IntersectionObserver` on a
+  sentinel element against the paged API.
+  - Accepted tradeoff: smaller ecosystem and a smaller AI-codegen training
+    corpus than React. React + Vite + TanStack Query is the fallback if
+    heavy reliance on AI-generated frontend code becomes the bottleneck.
+  - Future mobile app is only a "maybe" — not weighted heavily, so the
+    React Native code-sharing path was not a deciding factor.
+  - Vue considered — sits between the two but doesn't win on any axis for
+    this project.
+- **Auth**: token-based (e.g. JWT) from the start, since the SPA and API
+  are cross-origin. Session-cookie auth is off the table — it was only
+  ever viable for the now-dropped SSR phase. (Careful cross-site cookie
+  config — CORS, SameSite — is the fallback if token auth proves
+  annoying, but token-first is the plan.)
 
-Alternatives considered for Phase 1:
-- **FastAPI**: rejected — its main strength (async) doesn't pay off here
-  since CLIP inference is CPU-bound/blocking regardless of framework, and
-  server-rendered HTML isn't its focus anyway.
+Note: this is still a Stage 2 concern — the current focus (embed → train →
+score pipeline) has no UI yet. The web app comes after the core mechanic
+is proven end to end.
+
+Alternatives considered:
+- **FastAPI**: rejected — async doesn't pay off (CLIP inference is
+  CPU-bound/blocking regardless of framework).
 - **Django**: rejected for now — more upfront ceremony (settings, apps,
   migrations framework) than Flask for a first webapp, though its
   built-in admin panel would help with moderation tooling if that need
   arrives sooner than planned (Stage 1/moderation is explicitly not in
   scope yet — see "Current focus").
-- **htmx / hybrid SSR**: considered as a middle ground (partial-page
-  updates without a separate JS app), but not chosen since Phase 1 is
-  intentionally full server-rendered and Phase 2 goes fully detached
-  rather than staying hybrid.
+- **Server-rendered / htmx / hybrid SSR**: rejected — full detachment is
+  the target, so a hybrid or SSR-first step just adds throwaway work.
+- **React**: strong option (largest ecosystem, best AI-codegen support,
+  React Native path) but a steeper concept curve for a first frontend;
+  kept as the documented fallback. **Vue**: no decisive advantage here.
 
 ---
 
@@ -220,3 +249,6 @@ sqlite3 (stdlib)  # embedding/rating storage, no install needed
   focus is Stage 2 only.
 - Don't implement a vector DB, active learning, or the trendline feature
   unless asked — these are explicitly deferred.
+- `nubbins.md` (git-ignored, repo root) is a running list of unfinished
+  bits and extension points. Keep it current: add a nubbin whenever you
+  stub or defer something, strike one when it's done.

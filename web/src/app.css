@@ -1,0 +1,246 @@
+/* ==========================================================================
+   phorse — the whole stylesheet
+
+   Ported from web/prototypes/*.html. Plain, hand-written, no framework. This
+   is the only stylesheet in the app; the route components just use the
+   classes below.
+
+   - Colours and the page width live in :root, right here.
+   - After that it's grouped by part: page / masthead / feed post / rating /
+     forms / result / odds & ends.
+
+   Intentionally light-only and a bit plain — that's the look. A dark theme
+   is a later job.
+   ========================================================================== */
+
+:root {
+	--page-width: 40rem;
+	--ink: #1a1a1a;          /* body text */
+	--meta: #555;            /* bylines, small print, help text */
+	--link: #1a0dab;         /* the old web link blue */
+	--link-visited: #6b1a8b;
+	--rule: #bcbcbc;         /* borders and <hr> */
+	--name: #7a1f1f;         /* the site name */
+	--paper: #fbfbf7;        /* page background */
+	--err: #a3453a;          /* error text */
+}
+
+* {
+	box-sizing: border-box;
+}
+
+/* --- page --- */
+html {
+	background: var(--paper);
+}
+body {
+	max-width: var(--page-width);
+	margin: 0 auto;
+	padding: 1rem 1.25rem 4rem;
+	background: var(--paper);
+	color: var(--ink);
+	font: 17px/1.65 Georgia, 'Times New Roman', Times, serif;
+}
+a {
+	color: var(--link);
+}
+a:visited {
+	color: var(--link-visited);
+}
+hr {
+	border: none;
+	border-top: 1px solid var(--rule);
+	margin: 1.25rem 0;
+}
+h2 {
+	font-size: 1.3rem;
+	margin: 1.2rem 0 0.3rem;
+}
+button {
+	font-family: inherit;
+}
+
+/* --- masthead --- */
+.masthead h1 {
+	margin: 0 0 0.1rem;
+	font-size: 1.7rem;
+	color: var(--name);
+}
+.masthead h1 a {
+	color: inherit;
+	text-decoration: none;
+}
+.masthead .tagline {
+	margin: 0;
+	color: var(--meta);
+	font-size: 0.95rem;
+}
+.masthead nav {
+	margin-top: 0.5rem;
+	font-size: 0.95rem;
+}
+.masthead nav a {
+	text-decoration: none;
+}
+.masthead nav a:hover {
+	text-decoration: underline;
+}
+.masthead nav button {
+	font-size: inherit;
+	color: var(--link);
+	background: none;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+}
+.masthead nav button:hover {
+	text-decoration: underline;
+}
+
+/* --- a feed post --- */
+.post {
+	margin: 1.5rem 0;
+}
+.photo {
+	display: block;
+	width: 100%;
+	height: auto;
+	border: 1px solid var(--rule);
+	background: #fff;
+}
+.caption {
+	margin: 0.45rem 0 0;
+}
+.byline {
+	margin: 0.5rem 0 0.15rem;
+	font-family: 'Courier New', Courier, monospace;
+	font-size: 0.9rem;
+	color: var(--meta);
+}
+.byline b {
+	color: var(--ink);
+	font-weight: bold;
+}
+
+/* --- rating line --- */
+.rating {
+	margin: 0.15rem 0 0;
+	font-size: 0.95rem;
+}
+.rating .label {
+	color: var(--meta);
+}
+.rating .stars {
+	white-space: nowrap;
+}
+.rating .stars button {
+	display: inline-block;
+	min-width: 1.1rem;
+	margin: 0 1px;
+	padding: 0 0.15rem;
+	font-size: inherit;
+	text-align: center;
+	color: var(--link);
+	background: none;
+	border: 1px solid var(--rule);
+	cursor: pointer;
+}
+.rating .stars button:hover {
+	background: #fff2cc;
+}
+.rating .stars button:disabled {
+	color: var(--meta);
+	background: none;
+	cursor: default;
+}
+.rating .average {
+	color: var(--meta);
+}
+
+/* --- feed states --- */
+.feed-msg {
+	color: var(--meta);
+}
+.sentinel {
+	color: var(--meta);
+	font-size: 0.9rem;
+	padding: 1rem 0;
+}
+
+/* --- forms --- */
+form {
+	margin: 1rem 0;
+}
+fieldset {
+	border: 1px solid var(--rule);
+	padding: 0.8rem 1rem 1.1rem;
+	margin: 0;
+}
+legend {
+	font-weight: bold;
+	padding: 0 0.4rem;
+}
+label {
+	display: block;
+	margin: 0.8rem 0 0.2rem;
+}
+input[type='text'],
+input[type='password'] {
+	font: inherit;
+	width: 100%;
+	max-width: 22rem;
+	padding: 0.35rem 0.4rem;
+	border: 1px solid #888;
+	background: #fff;
+}
+input[type='file'] {
+	font: inherit;
+	margin: 0.2rem 0;
+}
+button[type='submit'],
+button.btn {
+	display: block;
+	font-size: 0.9rem;
+	margin-top: 0.9rem;
+	padding: 0.15rem 0.7rem;
+	border: 1px solid #999;
+	border-radius: 3px;
+	background: #ececec;
+	cursor: pointer;
+}
+button[type='submit']:hover,
+button.btn:hover {
+	background: #e0e0e0;
+}
+button[type='submit']:disabled {
+	color: var(--meta);
+	cursor: default;
+}
+
+/* --- upload result --- */
+.result {
+	border: 1px solid var(--rule);
+	background: #fff;
+	padding: 0.6rem 1rem;
+	margin: 1rem 0;
+}
+.result p {
+	margin: 0.3rem 0;
+}
+
+/* --- odds & ends --- */
+.plain-list {
+	color: var(--meta);
+	font-size: 0.95rem;
+	padding-left: 1.1rem;
+}
+.plain-list li {
+	margin: 0.3rem 0;
+}
+.note {
+	color: var(--meta);
+	font-size: 0.95rem;
+}
+.err {
+	color: var(--err);
+}

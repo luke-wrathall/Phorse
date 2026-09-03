@@ -8,3 +8,7 @@ venv/
 *.db
 *.sqlite3
 horse/data/
+server/data/
+nubbins.md
+
+# web/ has its own .gitignore (node_modules, .svelte-kit, build, .env)

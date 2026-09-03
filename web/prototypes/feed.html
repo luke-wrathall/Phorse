@@ -1,0 +1,248 @@
+<title>The Horse Feed</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<style>
+  /* ==========================================================================
+     horse — the feed (prototype)
+
+     Plain HTML and one hand-written stylesheet. No framework, no build step.
+     Open it in a browser, edit it in any text editor.
+
+     - Colours and the page width live in :root, just below. Change them there.
+     - Everything after that is grouped by part: page / masthead / post /
+       rating / footer.
+     - Each post is one <article class="post"> in <main>. Copy one to add a
+       post, delete one to remove it.
+     - The pictures are placeholder shapes defined once at the bottom of the
+       file. When real uploads exist, replace
+           <svg class="photo" ...><use href="#pic-horse" /></svg>
+       with
+           <img class="photo" src="/api/images/ID/file" alt="a horse" />
+
+     Intentionally light-only and a bit plain — that's the look. A dark theme
+     is something to add when this moves into the app.
+     ========================================================================== */
+
+  :root {
+    --page-width: 40rem;
+    --ink: #1a1a1a;          /* body text */
+    --meta: #555;            /* bylines, vote counts */
+    --link: #1a0dab;         /* the old web link blue */
+    --link-visited: #6b1a8b;
+    --rule: #bcbcbc;         /* borders and <hr> */
+    --name: #7a1f1f;         /* the site name */
+    --paper: #fbfbf7;        /* page background */
+  }
+
+  /* --- page --- */
+  html { background: var(--paper); }
+  body {
+    max-width: var(--page-width);
+    margin: 0 auto;
+    padding: 1rem 1.25rem 4rem;
+    background: var(--paper);
+    color: var(--ink);
+    font: 17px/1.65 Georgia, "Times New Roman", Times, serif;
+  }
+  a { color: var(--link); }
+  a:visited { color: var(--link-visited); }
+  hr { border: none; border-top: 1px solid var(--rule); margin: 1.25rem 0; }
+
+  /* --- masthead --- */
+  .masthead h1 {
+    margin: 0 0 0.1rem;
+    font-size: 1.7rem;
+    color: var(--name);
+  }
+  .masthead .tagline { margin: 0; color: var(--meta); font-size: 0.95rem; }
+  .masthead nav { margin-top: 0.5rem; font-size: 0.95rem; }
+  .masthead nav a { text-decoration: none; }
+  .masthead nav a:hover { text-decoration: underline; }
+
+  /* --- a post --- */
+  .post { margin: 1.5rem 0; }
+  .photo {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--rule);
+  }
+  .byline {
+    margin: 0.5rem 0 0.15rem;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 0.9rem;
+    color: var(--meta);
+  }
+  .byline b { color: var(--ink); font-weight: bold; }
+
+  /* --- rating line ---
+     Placeholder controls: the numbers 1-5 are links here so the markup stays
+     short and easy to edit. Wiring turns them into a real form. */
+  .rating { margin: 0.15rem 0 0; font-size: 0.95rem; }
+  .rating .label { color: var(--meta); }
+  .rating .stars a {
+    display: inline-block;
+    min-width: 1.1rem;
+    padding: 0 0.15rem;
+    text-align: center;
+    text-decoration: none;
+    border: 1px solid var(--rule);
+  }
+  .rating .stars a:hover { background: #fff2cc; }
+  .rating .average { color: var(--meta); }
+
+  /* --- footer --- */
+  footer { margin-top: 1.5rem; color: var(--meta); font-size: 0.9rem; }
+  footer p { margin: 0.4rem 0; }
+</style>
+
+<header class="masthead">
+  <h1>phorse</h1>
+  <p class="tagline">pictures of horses, decide how horsey they really are</p>
+  <nav>
+    <a href="#">the feed</a> &nbsp;|&nbsp;
+    <a href="#">post a horse</a> &nbsp;|&nbsp;
+    <a href="#">your page</a> &nbsp;|&nbsp;
+    <a href="#">log out</a>
+  </nav>
+</header>
+
+<hr />
+
+<main>
+
+  <!-- ONE POST — copy this whole <article> to add another. -->
+  <article class="post">
+    <svg class="photo" viewBox="0 0 220 140" role="img" aria-label="a horse in a field">
+      <use href="#pic-horse" />
+    </svg>
+    <p class="byline"><b>marisol</b> &nbsp;&middot;&nbsp; 2 hours ago</p>
+    <p class="rating">
+      <span class="label">rate this horse:</span>
+      <span class="stars">
+        <a href="#">1</a> <a href="#">2</a> <a href="#">3</a> <a href="#">4</a> <a href="#">5</a>
+      </span>
+      &nbsp; <span class="average">4.6 out of 5, from 214 people</span>
+    </p>
+  </article>
+
+  <article class="post">
+    <svg class="photo" viewBox="0 0 220 140" role="img" aria-label="a wooden rocking horse">
+      <use href="#pic-rocking" />
+    </svg>
+    <p class="byline"><b>devon</b> &nbsp;&middot;&nbsp; 5 hours ago</p>
+    <p class="rating">
+      <span class="label">rate this horse:</span>
+      <span class="stars">
+        <a href="#">1</a> <a href="#">2</a> <a href="#">3</a> <a href="#">4</a> <a href="#">5</a>
+      </span>
+      &nbsp; <span class="average">2.8 out of 5, from 512 people</span>
+    </p>
+  </article>
+
+  <article class="post">
+    <svg class="photo" viewBox="0 0 220 140" role="img" aria-label="a cow standing in a barnyard">
+      <use href="#pic-cow" />
+    </svg>
+    <p class="byline"><b>pia</b> &nbsp;&middot;&nbsp; 9 hours ago</p>
+    <p class="rating">
+      <span class="label">rate this horse:</span>
+      <span class="stars">
+        <a href="#">1</a> <a href="#">2</a> <a href="#">3</a> <a href="#">4</a> <a href="#">5</a>
+      </span>
+      &nbsp; <span class="average">2.1 out of 5, from 138 people</span>
+    </p>
+  </article>
+
+  <article class="post">
+    <svg class="photo" viewBox="0 0 220 140" role="img" aria-label="a cloud shaped a little like a horse">
+      <use href="#pic-cloud" />
+    </svg>
+    <p class="byline"><b>ori</b> &nbsp;&middot;&nbsp; 14 hours ago</p>
+    <p class="rating">
+      <span class="label">rate this horse:</span>
+      <span class="stars">
+        <a href="#">1</a> <a href="#">2</a> <a href="#">3</a> <a href="#">4</a> <a href="#">5</a>
+      </span>
+      &nbsp; <span class="average">3.4 out of 5, from 149 people</span>
+    </p>
+  </article>
+
+</main>
+
+<hr />
+
+<footer>
+  <p><a href="#">show older posts &rarr;</a></p>
+  <p><span id="whatis">horse is a website</span>. <a href="#">about</a> &nbsp;&middot;&nbsp; <a href="#">rules</a></p>
+</footer>
+
+<script>
+  /* now and then, the website is a horse instead */
+  if (Math.random() < 0.15) {
+    document.getElementById("whatis").textContent = "website is a horse";
+  }
+</script>
+
+<!-- ==========================================================================
+     Placeholder pictures. Each is a <symbol> made of a few plain shapes.
+     Delete this whole block once posts use real <img> tags.
+     ========================================================================== -->
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <symbol id="pic-horse" viewBox="0 0 220 140">
+    <rect width="220" height="140" fill="#e7dcc9" />
+    <g fill="#5b3f27">
+      <ellipse cx="112" cy="72" rx="46" ry="23" />
+      <path d="M150 62 q20 -6 24 -27 l10 2 q-2 27 -22 39 z" />
+      <path d="M176 30 l21 -8 4 12 -13 10 z" />
+      <path d="M182 22 l5 -12 5 10 z" />
+      <rect x="80" y="90" width="7" height="34" />
+      <rect x="99" y="90" width="7" height="34" />
+      <rect x="128" y="90" width="7" height="34" />
+      <rect x="147" y="90" width="7" height="34" />
+      <path d="M66 58 q-19 6 -21 35 l9 2 q5 -23 18 -29 z" />
+    </g>
+  </symbol>
+
+  <symbol id="pic-rocking" viewBox="0 0 220 140">
+    <rect width="220" height="140" fill="#e6e1d3" />
+    <g fill="#6b4a2c">
+      <ellipse cx="110" cy="60" rx="40" ry="17" />
+      <path d="M142 52 q16 -4 20 -22 l9 2 q-2 23 -18 33 z" />
+      <path d="M168 26 l18 -6 3 11 -12 9 z" />
+      <rect x="86" y="74" width="6" height="24" />
+      <rect x="128" y="74" width="6" height="24" />
+      <path d="M56 104 q54 26 108 0 q7 10 -4 15 q-50 20 -100 0 q-11 -5 -4 -15 z" />
+      <rect x="84" y="92" width="52" height="6" />
+    </g>
+  </symbol>
+
+  <symbol id="pic-cow" viewBox="0 0 220 140">
+    <rect width="220" height="140" fill="#e1dfd9" />
+    <g fill="#2f2b26">
+      <ellipse cx="106" cy="74" rx="48" ry="25" />
+      <path d="M148 66 q14 0 20 -12 l10 4 q-4 22 -24 26 z" />
+      <path d="M170 48 q20 -5 26 7 q-4 15 -24 13 z" />
+      <path d="M168 44 l-5 -11 11 6 z" />
+      <path d="M196 50 l9 -9 2 13 z" />
+      <rect x="74" y="94" width="8" height="34" />
+      <rect x="95" y="94" width="8" height="34" />
+      <rect x="126" y="94" width="8" height="34" />
+      <rect x="147" y="94" width="8" height="34" />
+      <path d="M58 64 q-11 4 -11 25 l6 0 q2 -17 11 -21 z" />
+      <circle cx="94" cy="68" r="7" opacity=".45" />
+      <circle cx="120" cy="80" r="10" opacity=".45" />
+    </g>
+  </symbol>
+
+  <symbol id="pic-cloud" viewBox="0 0 220 140">
+    <rect width="220" height="140" fill="#dde3e6" />
+    <g fill="#818b90">
+      <ellipse cx="88" cy="82" rx="34" ry="19" />
+      <ellipse cx="118" cy="74" rx="27" ry="20" />
+      <ellipse cx="150" cy="84" rx="22" ry="15" />
+      <ellipse cx="62" cy="86" rx="18" ry="12" />
+      <path d="M150 68 q14 -21 31 -23 q6 9 -2 19 q-13 8 -21 15 z" opacity=".85" />
+    </g>
+  </symbol>
+</svg>

@@ -28,6 +28,20 @@ class Config:
     HEAD_PATH = os.environ.get("HORSE_HEAD_PATH", "horse/data/head.pt")
     GATE_THRESHOLD = float(os.environ.get("HORSE_GATE_THRESHOLD", "2.5"))
 
+    # Retrain loop (server.scheduler). The training store is the aggregate
+    # db horse.train reads; app ratings are synced into it each cycle.
+    TRAINING_DB = os.environ.get("HORSE_TRAINING_DB", "horse/data/ratings.db")
+    ANCHOR_CACHE = os.environ.get("HORSE_ANCHOR_CACHE", "horse/data/anchor_cache.npz")
+    RETRAIN_INTERVAL_SECONDS = int(os.environ.get("HORSE_RETRAIN_INTERVAL", "600"))
+    LAMBDA_ANCHOR = float(os.environ.get("HORSE_LAMBDA_ANCHOR", "0.25"))
+    LAMBDA_DECAY = float(os.environ.get("HORSE_LAMBDA_DECAY", "0.01"))
+    COMMUNITY_WEIGHT_FLOOR = float(os.environ.get("HORSE_COMMUNITY_WEIGHT_FLOOR", "3.0"))
+
+    # Feed pool mix: consensus, contested, exploration. Must sum > 0.
+    FEED_MIX = tuple(
+        float(x) for x in os.environ.get("HORSE_FEED_MIX", "0.5,0.3,0.2").split(",")
+    )
+
     # JWT lifetime. Default 7 days.
     TOKEN_TTL_SECONDS = int(os.environ.get("HORSE_TOKEN_TTL", str(7 * 24 * 3600)))
 

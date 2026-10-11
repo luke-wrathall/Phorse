@@ -5,13 +5,12 @@
 	import type { FeedPage } from '$lib/types';
 	import RateWidget from '$lib/components/RateWidget.svelte';
 
-	const feed = createInfiniteQuery<FeedPage, Error, { pages: FeedPage[] }, string[], number | null>(
+	const feed = createInfiniteQuery<FeedPage, Error, { pages: FeedPage[] }, string[], number>(
 		() => ({
 			queryKey: ['feed'],
-			queryFn: ({ pageParam }) =>
-				api<FeedPage>(`/api/feed?limit=12${pageParam ? `&before=${pageParam}` : ''}`),
-			initialPageParam: null,
-			getNextPageParam: (last) => last.next_before
+			queryFn: ({ pageParam }) => api<FeedPage>(`/api/feed?limit=12&offset=${pageParam}`),
+			initialPageParam: 0,
+			getNextPageParam: (last) => last.next_offset ?? undefined
 		})
 	);
 

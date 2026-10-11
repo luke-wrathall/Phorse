@@ -29,7 +29,7 @@ from typing import Iterable, Iterator
 import numpy as np
 from PIL import Image
 
-from horse.embed import ClipEmbedder
+from horse.embed import ClipEmbedder, get_embedder
 
 # Target scores on the same 0-5 "horse out of 5" scale community ratings use.
 HORSE_TARGET = 5.0
@@ -142,7 +142,7 @@ def build_anchor_set(
 ) -> AnchorSet:
     """Embed every image from every source into one fixed AnchorSet."""
     sources = list(sources) if sources is not None else DEFAULT_SOURCES
-    embedder = embedder or ClipEmbedder()
+    embedder = embedder or get_embedder()
 
     ids: list[str] = []
     embeddings: list[np.ndarray] = []

@@ -1,0 +1,4 @@
+# Dev/test deps (app + model deps come from requirements.txt + server/requirements.txt).
+-r requirements.txt
+-r server/requirements.txt
+pytest>=8.0

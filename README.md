@@ -10,10 +10,16 @@ with community ratings. See `CLAUDE.md` for the full design.
 
 | dir | what |
 |---|---|
-| `horse/` | the Stage 2 classifier — CLIP embed → trainable head → score/gate, plus the anchor+decay retrain loop |
-| `server/` | Flask JSON API (`server/README.md`) — accounts, uploads, feed, ratings |
+| `horse/` | the Stage 2 classifier — CLIP embed → trainable head → score/gate, the anchor+decay training, and `ingest` (app ratings → training store) |
+| `server/` | Flask JSON API (`server/README.md`) — accounts, uploads, feed, ratings — plus `server.scheduler`, the automatic retrain loop |
 | `web/` | SvelteKit frontend (`web/README.md`) — the actual site |
 | `web/prototypes/` | static HTML mockups the UI was built from (reference only) |
+
+**The drift loop** (what makes this more than a static classifier): people
+rate images in the feed → `server.scheduler` retrains the head every
+`HORSE_RETRAIN_INTERVAL` seconds (ingest ratings → train → hot-reload →
+re-score every image) → the feed shifts. The anchor set keeps "horse" from
+collapsing however far ratings drift.
 
 ## Run it locally
 
@@ -25,19 +31,25 @@ npm --prefix web install
 cp web/.env.example web/.env          # PUBLIC_API_BASE=http://localhost:8000
 ```
 
-Then start both servers together:
+Then start everything together (API + web + retrain scheduler):
 
 ```bash
 pwsh scripts/dev.ps1      # Windows
 ./scripts/dev.sh          # macOS / Linux / Git Bash
 ```
 
-or in two terminals:
+or in separate terminals:
 
 ```bash
-python -m server.wsgi                 # API  → http://127.0.0.1:8000
-npm --prefix web run dev              # web  → http://localhost:5173
+python -m server.wsgi                 # API       → http://127.0.0.1:8000
+python -m server.scheduler            # retrain loop (HORSE_RETRAIN_INTERVAL, default 600s)
+npm --prefix web run dev              # web       → http://localhost:5173
 ```
+
+Set `HORSE_RETRAIN_INTERVAL=30` for a fast loop while testing drift, or
+`0` to disable the scheduler. `python -m server.retrain` runs one cycle on
+demand. `HORSE_FAKE_EMBEDDER=1` swaps CLIP for a deterministic stand-in
+(no model download) — handy for a quick local spin, not for real scoring.
 
 > **Windows:** if PowerShell says `npm.ps1 cannot be loaded because running
 > scripts is disabled`, either use `npm.cmd` in place of `npm`, or allow
@@ -47,7 +59,9 @@ npm --prefix web run dev              # web  → http://localhost:5173
 The API uses insecure dev defaults unless you set `HORSE_SECRET_KEY` (and
 the other `HORSE_*` vars — see `server/config.py`). It loads the trained
 head from `horse/data/head.pt`; if that file is missing, uploads are
-scored by an untrained head and nothing passes the gate.
+scored by an untrained head and nothing passes the gate — the scheduler
+writes one on its first cycle (which also builds the anchor cache from
+CIFAR-10 on first run, a one-time download).
 
 ## Data
 

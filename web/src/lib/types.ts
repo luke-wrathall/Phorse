@@ -9,7 +9,7 @@ export type FeedItem = {
 	image_url: string;
 };
 
-export type FeedPage = { items: FeedItem[]; next_before: number | null };
+export type FeedPage = { items: FeedItem[]; next_offset: number | null };
 
 /** One of the caller's own uploads (GET /api/images/mine) — includes rejected ones. */
 export type MyImage = {

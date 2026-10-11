@@ -9,9 +9,35 @@ reflect the culture of the user base. Currently building the classifier
 system, starting with Stage 2 (see architecture below).
 
 ## Current focus
-Stage 2 MVP: a working embed → train → score pipeline. Minimal dependencies,
-no UI, no moderation layer yet. Goal is to prove the core mechanic works
-end to end before layering on anything else.
+**Stage 2 MVP = the running site, locally, demonstrating the full drift
+loop.** Revised (was: "embed → train → score pipeline, no UI"). MVP is
+done when a person can, on a local instance: make an account → upload →
+get gated → see a real feed → rate images → and those ratings measurably
+move the classifier over a retrain cycle, with the anchor set keeping it
+from collapsing.
+
+**The core loop is now closed** (2026-09-03):
+- ✅ community → training loop — `horse/ingest.py` bridges app ratings into
+  the training store; `server/scheduler.py` retrains on an interval;
+  `server/services/model.py` hot-reloads the head; images are re-scored
+  each cycle. See "Retrain loop (built)".
+- ✅ three-pool feed — `server/services/feed.py`, community-global. See
+  "Recommendation / feed algorithm".
+- ✅ anchor + decay math — `train.py` loss is now weighted-means with a
+  constant `λ_anchor` ratio + a community-weight floor. See "Training /
+  drift mechanism".
+- ✅ end-to-end proof — `tests/test_core_loop.py` (drift down under
+  ratings, anchor bounds it, decay pulls it back).
+
+Remaining before calling MVP done: run the manual real-CLIP pass end to
+end (not just the fake-embedder test); tune the `λ` / floor / mix knobs
+against real score distributions (none exist yet).
+
+Still deferred (NOT MVP): deployment / public hosting, upload guards +
+rate limiting + dedup, account recovery / email, Stage 1 precheck,
+moderation, re-gating drifted content, the recursive aggregate
+optimization. Local-only is fine for MVP — "runs on `scripts/dev.*`" is
+the bar, not "is deployed".
 
 ---
 
@@ -71,10 +97,15 @@ real score distributions exist.
 
 ## Training / drift mechanism (anchor + decay, decided)
 
-Combined loss per retrain cycle:
+Combined loss per retrain cycle (`horse/train.py::train_head`):
 ```
-L = λ_anchor * L_anchor(seed_data) + Σ w(t_i) * L_rating(image_i, rating_i)
+L = λ_anchor * mean(anchor_sq_err)
+    + Σ w(t_i) * L_rating(image_i, rating_i) / max(Σ w(t_i), community_weight_floor)
+w(t) = exp(-λ_decay * Δt)
 ```
+Both `Σ`s pool every rating on every image together into one number each —
+a single platform-wide numerator and denominator, not one pair per image.
+That's load-bearing, not incidental: see `community_weight_floor` below.
 
 - **Anchor loss**: fixed seed/reference set (e.g. CLIP zero-shot "a photo
   of a horse" scores, or curated reference images) included in every
@@ -87,6 +118,45 @@ L = λ_anchor * L_anchor(seed_data) + Σ w(t_i) * L_rating(image_i, rating_i)
 - **Community loss**: each rating weighted by recency,
   `w(t) = exp(-λ_decay * Δt)`. `λ_decay` is the main "how fast does
   culture move" knob.
+- **Both terms are means, so `λ_anchor` is a constant *ratio*** between the
+  anchor pull and the community pull for a well-rated image — it is NOT
+  diluted as rating volume grows. (The earlier `Σ w·L_rating` sum form let
+  the anchor be swamped once an image had more than a few dozen ratings;
+  fixed 2026-09-03.) Trade-off accepted: vote *volume* no longer makes the
+  head fit an image harder — the feed's exploration pool handles surfacing
+  under-rated content instead.
+- **`community_weight_floor`** (default 3.0): floors the single,
+  platform-wide denominator (`max(Σ w(t_i), community_weight_floor)`,
+  summed over every rating on every image pooled together) — **not** a
+  per-image floor. Its job is numerical safety at low total effective
+  vote volume (e.g. right at launch, or a platform-wide quiet spell):
+  without it, a near-zero total weight could make the community term's
+  magnitude/gradient blow up. Above that near-zero range it's inert — a
+  plain weighted mean.
+  "Stale image fades back toward the anchor" is real, but it's a
+  **platform-relative** effect of the pooled mean itself, not a fixed
+  per-image guarantee: an old vote's weight shrinks *relative to however
+  much other, fresher weighted activity exists across the whole platform
+  at that moment*, not against some fixed per-image vote-count threshold.
+  A stale image on an otherwise-quiet platform fades slower than the same
+  stale vote would on a busy one — that's expected, not a bug.
+- **Deliberately not per-image.** A per-image version (group ratings by
+  image, floor each image's own weight sum, then average the per-image
+  means) was considered and rejected: once an image clears the floor,
+  further votes on it stop buying any more influence over the total loss
+  (each image becomes one equal term in an outer mean), while a *new*
+  image only needs ~floor votes to earn a full additional term of its
+  own — making image *count*, not vote *count*, the cheap lever for
+  swaying the shared head. The pooled version has no such asymmetry:
+  spreading N fake votes across many images vs. concentrating them on one
+  contributes the same total weight to the shared denominator either way,
+  so an attacker's leverage is capped by their share of *all* platform
+  votes, not by how many images they touch — and that share shrinks on
+  its own as real platform activity grows. Revisit only alongside real
+  anti-abuse work (upload dedup/rate limiting are already deferred — see
+  "Current focus" — and a per-image scheme would need equally careful
+  anti-gaming design of its own, e.g. an outer weight capped/diminishing
+  in each image's real vote mass rather than flat-equal-per-image).
 - **Why exponential decay**: constant half-life (proportional fade
   regardless of rating age, no jarring cutoffs), cheap recursive update
   (`aggregate_new = aggregate_old * exp(-λΔt) + new_ratings`, no need to
@@ -100,27 +170,145 @@ L = λ_anchor * L_anchor(seed_data) + Σ w(t_i) * L_rating(image_i, rating_i)
   layered on top of the smooth exponential math under the hood as a
   presentation-layer hybrid).
 
-## Recommendation / feed algorithm (decided, not yet built)
+## Retrain loop (built — this is what closes the MVP loop)
 
-Feed ranking blends three pools:
-- **Consensus-horse**: high mean, low variance — reinforces community
-  identity.
-- **Contested**: high rating variance — mirrors divisive/engagement-driven
-  boosting on real platforms, drives debate/participation. This was a
-  liked idea specifically because it mirrors real social media dynamics.
-- **Exploration**: low rating-count — ensures new/contested candidates get
-  discovered rather than the same debated set recirculating forever.
+Automatic, on an interval. One cycle (`server/services/retrain.py::run_retrain`):
 
-Rating variance should decay with the same recency weighting as the mean
-(so old contested images don't linger in the contested pool after
-settling into consensus). Mixing ratio between pools (e.g. 50/30/20) is a
-tunable parameter, possibly community-votable later.
+1. **Ingest** (`horse/ingest.py`) — copy every per-user rating from the app
+   db (`server/data/app.db`) into the training store
+   (`horse/data/ratings.db`), carrying each image's cached CLIP embedding
+   across so training never re-runs CLIP. Full idempotent sync.
+2. **Train** (`horse/train.py::train_from_store`) — retrain the head from
+   the anchor set + those ratings, warm-started from the current `head.pt`.
+3. **Reload** — `server/services/model.py` swaps the new checkpoint in.
+   The API process (separate from the scheduler) picks it up via an mtime
+   check on `head.pt` in `score_embedding`.
+4. **Re-score** — recompute `images.score` for every stored image from its
+   cached embedding, so the feed/ranking reflects the drift. The gate
+   decision (`images.passed`) is **NOT** re-evaluated — admission is a
+   point-in-time event. **Open question: should drift ever retroactively
+   evict already-admitted content (re-gating)?** Currently no.
+
+**Trigger**: `python -m server.scheduler` — a separate process (added to
+`scripts/dev.*`), retrains every `HORSE_RETRAIN_INTERVAL` seconds (default
+600; `0` disables), once immediately on startup. Deliberately not a thread
+in the API (keeps retrain off the request path, no Flask-reloader
+double-start) and not an HTTP endpoint. `python -m server.retrain` runs one
+cycle on demand.
+
+Knobs (all `server/config.py`, `HORSE_*` env): `LAMBDA_ANCHOR` (0.25),
+`LAMBDA_DECAY` (0.01), `COMMUNITY_WEIGHT_FLOOR` (3.0), `FEED_MIX`
+("0.5,0.3,0.2"), `RETRAIN_INTERVAL_SECONDS` (600). None tuned against real
+data yet.
+
+**`HORSE_FAKE_EMBEDDER=1`** swaps CLIP for a deterministic hash-based
+stand-in (`horse/embed.py::FakeEmbedder`, via `get_embedder()`) — no
+~600 MB download. Tests use it; also handy for running the app locally
+without the model.
+
+## Recommendation / feed algorithm (decided; built)
+
+Community-global ranking — one feed for everyone, driven by aggregate
+ratings, no per-user personalization. Built in
+`server/services/feed.py::get_feed` (replaced the newest-first stub).
+
+Feed ranking blends three pools (`_blended_score`, per image, independent
+of the rest of the set so pagination is stable):
+- **Consensus-horse**: high recency-weighted mean, low variance, enough
+  votes — reinforces community identity.
+- **Contested**: high recency-weighted rating variance — mirrors
+  divisive/engagement-driven boosting on real platforms, drives
+  debate/participation. This was a liked idea specifically because it
+  mirrors real social media dynamics.
+- **Exploration**: low total rating weight — ensures new/contested
+  candidates get discovered rather than the same debated set recirculating
+  forever.
+
+Mean AND variance use the same recency weighting as training
+(`w = exp(-λ_decay · Δt)`), so an image that was contested but has settled
+drops out of the contested pool over time. Mix ratio is `config.FEED_MIX`
+(`HORSE_FEED_MIX`, default 0.5/0.3/0.2) — a tunable parameter, possibly
+community-votable later.
+
+**MVP simplifications** (see `nubbins.md`): loads the whole gate-passing
+catalogue + all ratings per request (O(catalogue) — fine at MVP scale);
+offset pagination (`?limit=&offset=`), not keyset. The response exposes
+**no** variance / pool / "contested" fields — the UI must not surface the
+drift mechanism.
 
 **Flagged risk**: contested-content boosting is a known driver of
 toxicity/radicalization on real platforms. If this grows beyond an art
 project, add a lightweight content-safety pass independent of the horse
 classifier, so the "contested" pool doesn't become a magnet for abuse
 (e.g. gore/NSFW gaming the ambiguity). Not needed for MVP but keep in mind.
+
+---
+
+## Spitballing — per-user "horse" models (NOT DECIDED, possible future feature)
+
+> **Status: spitballing only.** Not on any roadmap, not an MVP concern,
+> nothing here is a build instruction. Recorded so the idea isn't lost.
+> If picked up, it's a post-MVP "second axis" feature that only makes
+> sense once the collective mechanic is proven end to end and the real
+> three-pool feed exists.
+
+**The idea.** Alongside the single community "horse" concept, learn a
+*personal* concept of "horse" per user from that user's own ratings. The
+thematic point: the collective concept drifting over time is *cultural
+evolution*; individual concepts diverging from each other at a single
+moment is *filter bubbles / subcultures / rabbit-hole dynamics*. It's a
+deliberate second mirror of real-platform pathology, complementary to the
+contested pool (which already mirrors divisive-engagement boosting).
+
+**Scope decision (spitball-level): FEED-ONLY.** The per-user model would
+influence **feed ranking only**. The **gate stays global** — one shared,
+community-shaped definition of what gets onto the platform. This keeps
+"one platform, shared rules of entry" intact (consistent with the
+unified-head rationale under "System architecture" — the gate is not
+decoupled) and confines personalization to what each user *sees*, not
+what *exists*. Personalized gating (what passes for you bounces for me)
+was considered and set aside — it fragments "platform" into N platforms
+and loses the single graspable art object. Could resurface as a later
+opt-in experiment, but not the default.
+
+**Feasibility.** Cheap, and the existing architecture already supports it
+— frozen CLIP, cached embeddings, tiny trainable head. A per-user model
+is just another small head (or better, see below) trained on cached
+embeddings; CLIP is never re-run. The real constraint is **data
+sparsity**: a head trained on one user's handful of ratings overfits into
+noise. Options, in rough order of preference:
+  1. **User-conditioned single model (preferred).** One head taking
+     `[image_embedding, user_embedding]` → score, with a learned per-user
+     vector (~8–32d) rather than a per-user network. Shares statistical
+     strength across users; cold-start is automatic (new user = mean user
+     embedding, then peels away as they rate); "your horse" is just the
+     model conditioned on your vector. Least infra, degrades gracefully.
+  2. **Hierarchical / partial pooling.** `personal = global +
+     regularized_delta`, delta shrunk toward zero. A random-effects model
+     in disguise. More granular, more knobs, more storage.
+  3. **Faction models.** Cluster users into k "horse camps," train
+     ~5–10 faction heads. Cheaper, overfitting-resistant, and factions
+     are a fun emergent social object — but see UI rule below.
+
+**Carried-over constraints if this is ever built:**
+- **Anchor loss applies per-user too**, likely with a *stronger*
+  `λ_anchor` than the collective model (far less personal data), or
+  personal concepts collapse fast.
+- **For the rabbit hole to actually form**, the loop must close: personal
+  model → what you're shown → what you rate → personal model. If the
+  per-user model only drives a display number, there's no rabbit hole,
+  just a stat. It has to feed ranking (personal re-score of candidates,
+  and/or personal exploration/contested mix) for real divergence to emerge.
+- **Do not surface it.** Same rule as the drift mechanism — no "you are
+  X% divergent from consensus" dashboard, no faction labels. Divergence
+  is cheap to compute (distance between user vectors, or disagreement on
+  a probe set) but it should be *felt* through the feed, not displayed.
+- **Overlap with the contested pool:** community rating variance is
+  partly per-user divergence aggregated. These two mechanisms measure
+  overlapping things — don't double-count them in ranking.
+- **Privacy note:** a per-user concept model is a fairly intimate
+  behavioral fingerprint. Fine for an art project; worth acknowledging if
+  scope ever grows.
 
 ---
 
@@ -136,8 +324,14 @@ in case" was a drag on the design. Go straight to the real architecture.
 (SvelteKit) run as one app. See the root `README.md` to run both
 (`scripts/dev.*`), plus `server/README.md` / `web/README.md` for detail.
 Accounts, upload→gate, captions, the feed, ratings, and a `/me` page are
-all wired to the real API. Feed ranking is still a newest-first
-placeholder, not the three-pool blend — see `nubbins.md`.
+all wired to the real API.
+
+**This app is part of the MVP** (see "Current focus" — revised). The core
+loop is now closed (2026-09-03): site ratings reach the training store
+via `horse/ingest.py`, `server/scheduler.py` retrains on an interval, the
+API hot-reloads the head, images are re-scored, and the feed is the real
+three-pool blend. `scripts/dev.*` now starts three processes (API + web +
+scheduler). See "Retrain loop (built)".
 
 **Feed UI direction (decided):** the "Stream" layout — social-app-first,
 images lead, one column, rate in place. Look is deliberately plain
@@ -176,9 +370,10 @@ mockups it came from are kept as reference only.
   config — CORS, SameSite — is the fallback if token auth proves
   annoying, but token-first is the plan.)
 
-Note: this is still a Stage 2 concern — the current focus (embed → train →
-score pipeline) has no UI yet. The web app comes after the core mechanic
-is proven end to end.
+Note: the web app is part of the Stage 2 MVP now (see "Current focus" —
+this was revised; the app was previously scoped as post-MVP). Local-only
+is the bar for MVP — deployment, hosting, and public-facing hardening
+(upload guards, rate limiting, auth hardening) stay deferred.
 
 Alternatives considered:
 - **FastAPI**: rejected — async doesn't pay off (CLIP inference is
@@ -240,13 +435,18 @@ sqlite3 (stdlib)  # embedding/rating storage, no install needed
 
 ## Working notes for Claude Code
 
-- When scaffolding, start with the smallest possible working pipeline:
-  load an image → CLIP embedding → head forward pass → score. Get this
-  working before adding training loop, storage, or Stage 1.
+- **MVP target (revised): the running site, locally, closing the drift
+  loop.** See "Current focus". The CLI pipeline and the web app both
+  exist; the work is wiring site ratings → training store → retrain →
+  live head reload, plus a real (community-global) feed algorithm. Track
+  it in `nubbins.md` "MVP — core loop not closed".
 - Keep the head model small and cheap to retrain — that's the whole point
   of the architecture (frozen backbone, tiny trainable head).
 - Don't build Stage 1 (precheck/moderation) yet unless asked — current
   focus is Stage 2 only.
+- Local-only is fine for the MVP — don't spend effort on deployment,
+  hosting, upload guards, rate limiting, or account recovery yet (all
+  explicitly deferred in "Current focus").
 - Don't implement a vector DB, active learning, or the trendline feature
   unless asked — these are explicitly deferred.
 - `nubbins.md` (git-ignored, repo root) is a running list of unfinished

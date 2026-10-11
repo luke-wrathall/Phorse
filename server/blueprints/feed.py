@@ -1,9 +1,10 @@
 """Feed endpoint.
 
-    GET /api/feed?limit=20&before=<timestamp>  -> {items: [...], next_before: <ts|null>}
+    GET /api/feed?limit=20&offset=0  -> {items: [...], next_offset: <int|null>}
 
-`before` is the keyset cursor: pass back the previous response's
-`next_before` to fetch the next page (null means end of feed).
+The feed is ranked (three-pool blend, see services/feed.py), so pagination
+is by offset: pass back the previous response's `next_offset` for the next
+page (null means end of feed).
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ bp = Blueprint("feed", __name__, url_prefix="/api")
 def feed():
     try:
         limit = int(request.args.get("limit", feed_service.DEFAULT_LIMIT))
-        before = request.args.get("before", type=float)
+        offset = int(request.args.get("offset", 0))
     except (TypeError, ValueError):
-        raise ApiError("limit must be an integer and before a number")
-    return jsonify(feed_service.get_feed(limit=limit, before=before))
+        raise ApiError("limit and offset must be integers")
+    return jsonify(feed_service.get_feed(limit=limit, offset=offset))

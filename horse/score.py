@@ -16,13 +16,13 @@ import argparse
 
 import torch
 
-from horse.embed import ClipEmbedder
+from horse.embed import get_embedder
 from horse.model import HorseHead
 
 
 def score_images(paths: list[str], head_path: str | None = None) -> dict[str, float]:
     """Embed each image and run it through the head. Loads CLIP once, reused across images."""
-    embedder = ClipEmbedder()
+    embedder = get_embedder()
     head = HorseHead.load(head_path) if head_path else HorseHead()
     head.eval()
 

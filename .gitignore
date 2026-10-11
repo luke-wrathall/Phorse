@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+.pytest_cache/
 .venv/
 venv/
 *.pt
@@ -10,5 +11,6 @@ venv/
 horse/data/
 server/data/
 nubbins.md
+possible issues.md
 
 # web/ has its own .gitignore (node_modules, .svelte-kit, build, .env)

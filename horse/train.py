@@ -1,14 +1,26 @@
 """Retrain the Stage 2 drift head: anchor loss + recency-weighted community loss.
 
-    L = lambda_anchor * L_anchor(seed_data) + sum_i w(t_i) * L_rating(image_i, rating_i)
+    L = lambda_anchor * mean(anchor_sq_err)
+        + sum_i( w(t_i) * rating_sq_err_i ) / max(sum_i w(t_i), community_weight_floor)
     w(t) = exp(-lambda_decay * elapsed_days)
 
-L_anchor is the mean-squared error over the fixed anchor set (constant
-weight, never decays -- see anchors.py). Each community rating is its
-own per-example squared error, weighted by how recently it was made.
+The anchor term is a plain mean over the fixed anchor set (anchors.py).
+The community term is a recency-weighted mean of the per-vote squared
+errors -- BUT the denominator is floored at `community_weight_floor`. So:
+
+- Once an image has ~floor effective (recency-weighted) votes or more, the
+  community term is a true weighted mean and `lambda_anchor` is a *constant
+  ratio* between the anchor pull and the community pull -- it is not
+  diluted by rating volume (an earlier version summed the community term,
+  which let the anchor be swamped after a few dozen ratings).
+- Below that -- a barely-rated image, or one whose ratings have decayed
+  with age and had no fresh votes -- the community term shrinks and the
+  anchor pulls the score back toward the reference. This is what makes
+  stale culture fade rather than persist forever.
+
 This is the "one unified head, no separate gate/rating models" mechanism
-decided in CLAUDE.md: gate.py and score.py both read the same checkpoint
-this produces.
+decided in CLAUDE.md: gate.py and score.py both read the checkpoint this
+produces.
 
 Run:
 
@@ -18,7 +30,9 @@ Run:
 from __future__ import annotations
 
 import argparse
+import os
 import time
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -30,8 +44,14 @@ from horse.storage import all_ratings, connect
 DEFAULT_RATINGS_DB = "horse/data/ratings.db"
 DEFAULT_HEAD_OUT = "horse/data/head.pt"
 
-DEFAULT_LAMBDA_ANCHOR = 1.0
+# lambda_anchor is now a ratio between two mean losses: 0.25 -> the anchor
+# is ~1/5 of the combined loss for a well-rated image, always. Small but
+# constant "rubber band".
+DEFAULT_LAMBDA_ANCHOR = 0.25
 DEFAULT_LAMBDA_DECAY = 0.01  # per day -- ~70-day half-life; the "how fast culture moves" knob
+# Effective recency-weighted votes before the community fully owns an
+# image's target. Below this the anchor pulls a stale/barely-rated image back.
+DEFAULT_COMMUNITY_WEIGHT_FLOOR = 3.0
 DEFAULT_EPOCHS = 200
 DEFAULT_LR = 1e-3
 
@@ -53,14 +73,18 @@ def train_head(
     rating_weights: np.ndarray,
     *,
     lambda_anchor: float = DEFAULT_LAMBDA_ANCHOR,
+    community_weight_floor: float = DEFAULT_COMMUNITY_WEIGHT_FLOOR,
     epochs: int = DEFAULT_EPOCHS,
     lr: float = DEFAULT_LR,
     head: HorseHead | None = None,
-) -> HorseHead:
+    log_every: int | None = None,
+) -> tuple[HorseHead, dict]:
     """Full-batch gradient descent on the combined anchor + community loss.
 
     Full-batch (no minibatching) is fine at this scale -- the whole point
     of the frozen-backbone design is that retraining the head is cheap.
+    Returns (head, {"anchor_loss", "community_loss", "final_loss"}) with the
+    loss values from the last epoch.
     """
     head = head if head is not None else HorseHead()
     head.train()
@@ -74,29 +98,48 @@ def train_head(
         rating_x = torch.from_numpy(rating_embeddings)
         rating_y = torch.from_numpy(rating_targets)
         rating_w = torch.from_numpy(rating_weights)
+        # floored denominator: weighted mean once past the floor, decaying
+        # community influence below it (see module docstring).
+        weight_denom = torch.clamp(rating_w.sum(), min=community_weight_floor)
 
-    for _ in range(epochs):
+    anchor_loss = community_loss = total = torch.tensor(0.0)
+    for epoch in range(epochs):
         optimizer.zero_grad()
 
         anchor_pred = head(anchor_x)
-        loss = lambda_anchor * torch.mean((anchor_pred - anchor_y) ** 2)
+        anchor_loss = torch.mean((anchor_pred - anchor_y) ** 2)
+        total = lambda_anchor * anchor_loss
 
         if has_ratings:
             rating_pred = head(rating_x)
-            per_example_loss = (rating_pred - rating_y) ** 2
-            loss = loss + torch.sum(rating_w * per_example_loss)
+            per_example = (rating_pred - rating_y) ** 2
+            community_loss = torch.sum(rating_w * per_example) / weight_denom
+            total = total + community_loss
 
-        loss.backward()
+        total.backward()
         optimizer.step()
 
+        if log_every and (epoch % log_every == 0 or epoch == epochs - 1):
+            community_val = float(torch.as_tensor(community_loss).detach())
+            print(
+                f"[train] epoch {epoch:4d}  anchor={anchor_loss.item():.4f}  "
+                f"community={community_val:.4f}  total={total.item():.4f}"
+            )
+
     head.eval()
-    return head
+    summary = {
+        "anchor_loss": float(anchor_loss.detach()),
+        "community_loss": float(torch.as_tensor(community_loss).detach()),
+        "final_loss": float(total.detach()),
+    }
+    return head, summary
 
 
 def load_ratings(db_path: str, embedding_dim: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Returns (embeddings, ratings, timestamps), each possibly empty."""
     conn = connect(db_path)
     records = all_ratings(conn)
+    conn.close()
     if not records:
         return (
             np.zeros((0, embedding_dim), dtype=np.float32),
@@ -109,6 +152,62 @@ def load_ratings(db_path: str, embedding_dim: int) -> tuple[np.ndarray, np.ndarr
     return embeddings, ratings, timestamps
 
 
+def train_from_store(
+    ratings_db: str = DEFAULT_RATINGS_DB,
+    anchor_cache: str = str(DEFAULT_CACHE_PATH),
+    head_out: str = DEFAULT_HEAD_OUT,
+    *,
+    head_in: str | None = None,
+    lambda_anchor: float = DEFAULT_LAMBDA_ANCHOR,
+    lambda_decay: float = DEFAULT_LAMBDA_DECAY,
+    community_weight_floor: float = DEFAULT_COMMUNITY_WEIGHT_FLOOR,
+    epochs: int = DEFAULT_EPOCHS,
+    lr: float = DEFAULT_LR,
+    log_every: int | None = None,
+) -> dict:
+    """One retrain cycle from the databases: anchors + ratings -> new head.pt.
+
+    Does NOT ingest -- the caller syncs app ratings into `ratings_db`
+    first (see horse.ingest). Returns a summary dict (loss values + counts).
+    """
+    anchor_set = load_or_build_anchor_set(cache_path=anchor_cache)
+    embedding_dim = anchor_set.embeddings.shape[1]
+
+    rating_embeddings, rating_targets, timestamps = load_ratings(ratings_db, embedding_dim)
+    rating_weights = (
+        recency_weights(timestamps, lambda_decay)
+        if len(timestamps)
+        else timestamps.astype(np.float32)
+    )
+
+    head = HorseHead.load(head_in) if head_in and Path(head_in).exists() else None
+
+    trained, summary = train_head(
+        anchor_set.embeddings,
+        anchor_set.targets,
+        rating_embeddings,
+        rating_targets,
+        rating_weights,
+        lambda_anchor=lambda_anchor,
+        community_weight_floor=community_weight_floor,
+        epochs=epochs,
+        lr=lr,
+        head=head,
+        log_every=log_every,
+    )
+    # atomic write: the API process may be reading head.pt (mtime hot-reload)
+    # while this runs in the scheduler process.
+    tmp_out = f"{head_out}.tmp"
+    trained.save(tmp_out)
+    os.replace(tmp_out, head_out)
+
+    summary.update(
+        {"n_ratings": int(len(rating_targets)), "n_anchors": int(len(anchor_set.ids)),
+         "head_out": head_out}
+    )
+    return summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Retrain the Stage 2 drift head.")
     parser.add_argument("--ratings-db", default=DEFAULT_RATINGS_DB)
@@ -117,35 +216,33 @@ def main() -> None:
     parser.add_argument("--head-in", default=None, help="Warm-start from a checkpoint instead of random init.")
     parser.add_argument("--lambda-anchor", type=float, default=DEFAULT_LAMBDA_ANCHOR)
     parser.add_argument("--lambda-decay", type=float, default=DEFAULT_LAMBDA_DECAY)
+    parser.add_argument("--community-weight-floor", type=float, default=DEFAULT_COMMUNITY_WEIGHT_FLOOR)
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     parser.add_argument("--lr", type=float, default=DEFAULT_LR)
+    parser.add_argument("--log-every", type=int, default=50, help="Print loss every N epochs (0 to silence).")
     parser.add_argument("--rebuild-anchors", action="store_true", help="Force re-embedding the anchor set.")
     args = parser.parse_args()
 
-    anchor_set = load_or_build_anchor_set(cache_path=args.anchor_cache, force_rebuild=args.rebuild_anchors)
-    embedding_dim = anchor_set.embeddings.shape[1]
+    if args.rebuild_anchors:
+        load_or_build_anchor_set(cache_path=args.anchor_cache, force_rebuild=True)
 
-    rating_embeddings, rating_targets, timestamps = load_ratings(args.ratings_db, embedding_dim)
-    rating_weights = recency_weights(timestamps, args.lambda_decay) if len(timestamps) else timestamps.astype(np.float32)
-
-    head = HorseHead.load(args.head_in) if args.head_in else None
-
-    trained = train_head(
-        anchor_set.embeddings,
-        anchor_set.targets,
-        rating_embeddings,
-        rating_targets,
-        rating_weights,
+    summary = train_from_store(
+        args.ratings_db,
+        args.anchor_cache,
+        args.head_out,
+        head_in=args.head_in,
         lambda_anchor=args.lambda_anchor,
+        lambda_decay=args.lambda_decay,
+        community_weight_floor=args.community_weight_floor,
         epochs=args.epochs,
         lr=args.lr,
-        head=head,
+        log_every=args.log_every or None,
     )
-
-    trained.save(args.head_out)
     print(
-        f"[train] {len(rating_targets)} community ratings, {len(anchor_set.ids)} anchors "
-        f"(lambda_anchor={args.lambda_anchor}, lambda_decay={args.lambda_decay}) -> {args.head_out}"
+        f"[train] {summary['n_ratings']} community ratings, {summary['n_anchors']} anchors "
+        f"(lambda_anchor={args.lambda_anchor}, lambda_decay={args.lambda_decay}) "
+        f"-> {args.head_out}  [anchor={summary['anchor_loss']:.4f} "
+        f"community={summary['community_loss']:.4f}]"
     )
 
 

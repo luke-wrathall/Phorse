@@ -9,6 +9,9 @@ trap 'kill 0' EXIT
 echo "starting API on http://127.0.0.1:8000 ..."
 python -m server.wsgi &
 
+echo "starting retrain scheduler (HORSE_RETRAIN_INTERVAL=${HORSE_RETRAIN_INTERVAL:-600}s) ..."
+python -m server.scheduler &
+
 echo "starting web on http://localhost:5173 ..."
 npm --prefix web run dev &
 

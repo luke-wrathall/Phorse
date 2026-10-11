@@ -257,6 +257,24 @@ drops out of the contested pool over time. Mix ratio is `config.FEED_MIX`
 (`HORSE_FEED_MIX`, default 0.5/0.3/0.2) — a tunable parameter, possibly
 community-votable later.
 
+**Alternative strategies (2026-10-11, being compared)** — `HORSE_FEED_STRATEGY`
+picks one for everyone (server config switch, not a UI choice):
+- `blend` (default) — the three-pool blend above.
+- `contested` — most divisive first (`_contested_score`), interleaved with
+  horses the viewer hasn't rated (newest first).
+- `consensus` — highest-rated first, interleaved the same way.
+- `top` — straight highest-rated, identical for everyone.
+
+"Highest rated" = shrunk mean (`_shrunk_mean`: recency-weighted mean pulled
+toward the platform mean by `SAT_K` effective votes, so one 5-star vote
+can't top the chart). "Unrated by the viewer" comes from the ratings table
+— a horse scrolled past without rating stays "unseen" (no impressions
+tracking). `HORSE_FEED_UNSEEN_SHARE` (0.5) is the fraction of slots it gets.
+The feed endpoint takes an optional bearer token for this; logged out,
+nothing counts as rated. This is the first per-viewer element in the feed
+— a filter on the viewer's own ratings, not a personalized model, so the
+"no per-user personalization" spirit above still holds.
+
 **MVP simplifications** (see `nubbins.md`): loads the whole gate-passing
 catalogue + all ratings per request (O(catalogue) — fine at MVP scale);
 offset pagination (`?limit=&offset=`), not keyset. The response exposes

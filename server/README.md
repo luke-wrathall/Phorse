@@ -52,7 +52,7 @@ python -m server.retrain            # or a single cycle, on demand
 | POST | `/api/images` | Bearer | multipart `image` (+ optional `caption`) → `{id,score,passed,threshold,head_loaded}` |
 | GET | `/api/images/mine` | Bearer | → `{items}` — the caller's uploads, passed or not |
 | GET | `/api/images/<id>/file` | — | → image bytes |
-| GET | `/api/feed` | — | `?limit=&offset=` → `{items,next_offset}` — ranked (three-pool blend, see `services/feed.py`) |
+| GET | `/api/feed` | optional | `?limit=&offset=` → `{items,next_offset}` — ranked by `HORSE_FEED_STRATEGY` (blend / contested / consensus / top, see `services/feed.py`); a token lets contested/consensus mix in horses you haven't rated |
 | POST | `/api/images/<id>/ratings` | Bearer | `{rating:0..5}` → `{ok,rating_count,rating_mean}` |
 
 ## Databases

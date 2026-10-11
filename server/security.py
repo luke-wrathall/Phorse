@@ -46,6 +46,18 @@ def decode_token(token: str) -> int:
         raise ApiError("invalid or expired token", 401)
 
 
+def optional_user_id() -> int | None:
+    """The caller's user id if a valid bearer token is present, else None.
+    For endpoints that work logged out but personalize when logged in."""
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Bearer "):
+        return None
+    try:
+        return decode_token(header[len("Bearer ") :].strip())
+    except ApiError:
+        return None
+
+
 def require_auth(view):
     """Decorator: 401 unless a valid bearer token is present. Sets g.user_id."""
 

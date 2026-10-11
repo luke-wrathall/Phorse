@@ -45,7 +45,17 @@ class Config:
     RETRAIN_EPOCHS = int(os.environ.get("HORSE_RETRAIN_EPOCHS", "200"))
     RETRAIN_PROX_WEIGHT = float(os.environ.get("HORSE_RETRAIN_PROX_WEIGHT", "1.0"))
 
-    # Feed pool mix: consensus, contested, exploration. Must sum > 0.
+    # Feed ranking strategy (services/feed.py):
+    #   blend      -- three-pool blend below, community-global
+    #   contested  -- most divisive horses, interleaved with ones you haven't rated
+    #   consensus  -- highest-rated horses, interleaved with ones you haven't rated
+    #   top        -- straight highest-rated, same for everyone
+    FEED_STRATEGY = os.environ.get("HORSE_FEED_STRATEGY", "blend")
+    # contested/consensus: fraction of feed slots given to horses the viewer
+    # hasn't rated yet (newest first).
+    FEED_UNSEEN_SHARE = float(os.environ.get("HORSE_FEED_UNSEEN_SHARE", "0.5"))
+
+    # Feed pool mix (blend strategy): consensus, contested, exploration. Must sum > 0.
     FEED_MIX = tuple(
         float(x) for x in os.environ.get("HORSE_FEED_MIX", "0.5,0.3,0.2").split(",")
     )

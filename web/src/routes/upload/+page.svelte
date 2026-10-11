@@ -47,6 +47,10 @@
 			<p><b>your horse is up.</b> <a href="/">see it in the feed &rarr;</a></p>
 		{:else}
 			<p><b>not horse enough!</b></p>
+			<p class="note">
+				you were {Math.max(0.01, upload.data.threshold - upload.data.score).toFixed(2)} horse short
+				of the line.
+			</p>
 		{/if}
 	</div>
 	<button class="btn" type="button" onclick={again}>post another</button>

@@ -1,12 +1,22 @@
 <script lang="ts">
-	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { api, ApiError } from '$lib/api';
 	import { auth } from '$lib/auth.svelte';
-	import type { UploadResult } from '$lib/types';
+	import { uploadSizeProblem } from '$lib/upload';
+	import type { UploadLimits, UploadResult } from '$lib/types';
 
 	const client = useQueryClient();
 	let file = $state<File | null>(null);
 	let caption = $state('');
+	let tooBig = $state<string | null>(null);
+	let checking = $state(false);
+	let pickCount = 0; // ignore a slow check for a file that's since been swapped out
+
+	const limits = createQuery<UploadLimits>(() => ({
+		queryKey: ['upload-limits'],
+		queryFn: () => api('/api/images/limits'),
+		staleTime: Infinity
+	}));
 
 	const upload = createMutation<UploadResult, Error, void>(() => ({
 		mutationFn: () => {
@@ -21,17 +31,27 @@
 		}
 	}));
 
-	function pick(event: Event) {
-		file = (event.target as HTMLInputElement).files?.[0] ?? null;
+	async function pick(event: Event) {
+		const picked = (event.target as HTMLInputElement).files?.[0] ?? null;
+		const n = ++pickCount;
+		file = picked;
+		tooBig = null;
+		checking = !!picked;
+		if (!picked) return;
+		const problem = await uploadSizeProblem(picked, limits.data);
+		if (n !== pickCount) return;
+		tooBig = problem;
+		checking = false;
 	}
 	function submit(event: SubmitEvent) {
 		event.preventDefault();
-		if (file) upload.mutate();
+		if (file && !tooBig) upload.mutate();
 	}
 	function again() {
 		upload.reset();
 		file = null;
 		caption = '';
+		tooBig = null;
 	}
 </script>
 
@@ -62,13 +82,15 @@
 			<input id="f" type="file" accept="image/*" onchange={pick} />
 			<label for="c">say something about it (optional)</label>
 			<input id="c" type="text" maxlength="280" bind:value={caption} />
-			<button type="submit" disabled={!file || upload.isPending}>
+			<button type="submit" disabled={!file || !!tooBig || checking || upload.isPending}>
 				{upload.isPending ? 'checking…' : 'post it'}
 			</button>
 		</fieldset>
 	</form>
 
-	{#if upload.isError}
+	{#if tooBig}
+		<p class="note err">{tooBig}</p>
+	{:else if upload.isError}
 		<p class="note err">
 			{upload.error instanceof ApiError ? upload.error.message : 'upload failed'}
 		</p>

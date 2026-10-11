@@ -1,6 +1,7 @@
 """Image upload + file serving.
 
     POST /api/images              (Bearer, multipart 'image' + optional 'caption')
+    GET  /api/images/limits       -> {max_bytes, max_pixels}   so the client can pre-check
     GET  /api/images/mine         (Bearer)  -> {items: [...]}  the caller's own uploads
     GET  /api/images/<id>/file                                 -> the stored image bytes
 """
@@ -26,6 +27,14 @@ def upload():
         raise ApiError("no image uploaded (multipart form field 'image')")
     caption = request.form.get("caption")
     return jsonify(images_service.upload_image(file, g.user_id, caption)), 201
+
+
+@bp.get("/images/limits")
+def upload_limits():
+    # The server still enforces these; the client only checks to avoid
+    # sending a file that is bound to be refused.
+    cfg = current_app.config
+    return jsonify(max_bytes=cfg["MAX_CONTENT_LENGTH"], max_pixels=cfg["MAX_UPLOAD_PIXELS"])
 
 
 @bp.get("/images/mine")

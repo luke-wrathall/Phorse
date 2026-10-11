@@ -15,7 +15,29 @@ import jwt
 from flask import current_app, g, request
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from .config import DEV_SECRET_KEY
 from .errors import ApiError
+
+# HS256 keys shorter than the hash output (32 bytes) are brute-forceable.
+MIN_SECRET_KEY_LEN = 32
+
+
+def check_secret_key(secret: str | None) -> None:
+    """Raise unless `secret` is fit to sign real users' JWTs.
+
+    Anyone who knows the signing secret can forge a token for any user, so
+    the public dev default (or a short key) must never reach a deployment.
+    """
+    if not secret or secret == DEV_SECRET_KEY:
+        raise RuntimeError(
+            "HORSE_SECRET_KEY is not set. Generate one with\n"
+            '  python -c "import secrets; print(secrets.token_hex(32))"\n'
+            "and set it in the server's environment."
+        )
+    if len(secret) < MIN_SECRET_KEY_LEN:
+        raise RuntimeError(
+            f"HORSE_SECRET_KEY is {len(secret)} characters; use at least {MIN_SECRET_KEY_LEN}."
+        )
 
 
 def hash_password(password: str) -> str:

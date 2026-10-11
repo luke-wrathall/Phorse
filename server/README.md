@@ -11,6 +11,11 @@ export HORSE_SECRET_KEY=$(python -c "import secrets;print(secrets.token_hex(32))
 python -m server.wsgi                            # http://127.0.0.1:8000
 ```
 
+`HORSE_SECRET_KEY` is optional for `python -m server.wsgi` (localhost-only
+debug server, falls back to a dev secret) but required — 32+ characters —
+when a WSGI server such as gunicorn imports `server.wsgi:app`; it refuses to
+start without one (`security.check_secret_key`).
+
 First request that touches the model loads CLIP + the head checkpoint
 (`horse/data/head.pt`); if that file is missing an untrained head is used
 and responses carry `head_loaded: false`. The head is hot-reloaded when

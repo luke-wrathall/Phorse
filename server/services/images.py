@@ -72,7 +72,18 @@ def upload_image(file: FileStorage, owner_id: int, caption: str | None = None) -
     rotation (see `_best_rotation`), so the feed shows it the right way up.
     """
     try:
-        image = ImageOps.exif_transpose(Image.open(file.stream)).convert("RGB")
+        opened = Image.open(file.stream)  # lazy: reads the header, not the pixels
+    except Exception as exc:  # noqa: BLE001 -- report any bad-upload reason
+        raise ApiError(f"could not read image: {exc}", 400)
+    max_pixels = current_app.config["MAX_UPLOAD_PIXELS"]
+    if opened.width * opened.height > max_pixels:
+        raise ApiError(
+            f"image too big -- {opened.width}x{opened.height} is over the "
+            f"{max_pixels / 1_000_000:g} megapixel limit",
+            413,
+        )
+    try:
+        image = ImageOps.exif_transpose(opened).convert("RGB")
     except Exception as exc:  # noqa: BLE001 -- report any bad-upload reason
         raise ApiError(f"could not read image: {exc}", 400)
 

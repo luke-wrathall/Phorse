@@ -15,9 +15,21 @@ def _bool(name: str, default: bool) -> bool:
     return default if raw is None else raw.lower() in {"1", "true", "yes", "on"}
 
 
+# Fallback JWT secret for the localhost dev server only. server.wsgi refuses
+# to serve under a real WSGI server (gunicorn) with it -- see
+# security.check_secret_key.
+DEV_SECRET_KEY = "dev-insecure-change-me"
+
+
 class Config:
     # Signs JWTs. Overridden in tests; MUST be set for real use.
-    SECRET_KEY = os.environ.get("HORSE_SECRET_KEY", "dev-insecure-change-me")
+    SECRET_KEY = os.environ.get("HORSE_SECRET_KEY", DEV_SECRET_KEY)
+
+    # Upload limits. MAX_CONTENT_LENGTH is Flask's own request-body cap (413
+    # past it); MAX_UPLOAD_PIXELS stops a small, highly compressed file from
+    # decoding into a huge bitmap (each upload is decoded and rotated 4x).
+    MAX_CONTENT_LENGTH = int(float(os.environ.get("HORSE_MAX_UPLOAD_MB", "20")) * 1024 * 1024)
+    MAX_UPLOAD_PIXELS = int(os.environ.get("HORSE_MAX_UPLOAD_PIXELS", str(40_000_000)))
 
     # App database: users, uploaded-image metadata, ratings. Separate from
     # horse/data/ratings.db (the training store) -- see server/README.md.

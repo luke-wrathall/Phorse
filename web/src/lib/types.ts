@@ -22,6 +22,9 @@ export type MyImage = {
 	image_url: string;
 };
 
+/** GET /api/images/limits — the server's upload caps, for a pre-check before sending. */
+export type UploadLimits = { max_bytes: number; max_pixels: number };
+
 export type UploadResult = {
 	id: string;
 	score: number;

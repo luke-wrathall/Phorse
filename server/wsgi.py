@@ -1,6 +1,11 @@
 """Dev entrypoint:  python -m server.wsgi   (or point gunicorn at `server.wsgi:app`).
 
     HORSE_SECRET_KEY=... python -m server.wsgi
+
+`python -m server.wsgi` is the localhost-only debug server and falls back to
+a dev JWT secret. Imported by a real WSGI server (gunicorn), it refuses to
+start without a proper HORSE_SECRET_KEY -- checked before the app is
+created, so a misconfigured deploy fails with no side effects.
 """
 
 from __future__ import annotations
@@ -8,7 +13,12 @@ from __future__ import annotations
 import os
 
 from . import create_app
+from .config import Config
+from .security import check_secret_key
 from .services import model
+
+if __name__ != "__main__":
+    check_secret_key(Config.SECRET_KEY)
 
 app = create_app()
 

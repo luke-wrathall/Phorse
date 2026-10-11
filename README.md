@@ -57,7 +57,11 @@ demand. `HORSE_FAKE_EMBEDDER=1` swaps CLIP for a deterministic stand-in
 > `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
 The API uses insecure dev defaults unless you set `HORSE_SECRET_KEY` (and
-the other `HORSE_*` vars — see `server/config.py`). It loads the trained
+the other `HORSE_*` vars — see `server/config.py`). The dev JWT secret only
+works for `python -m server.wsgi` (localhost debug server); served by
+gunicorn (`server.wsgi:app`) the API refuses to start without a real
+`HORSE_SECRET_KEY` of 32+ characters. Uploads are capped at
+`HORSE_MAX_UPLOAD_MB` (20) and `HORSE_MAX_UPLOAD_PIXELS` (40 million). It loads the trained
 head from `horse/data/head.pt`; if that file is missing, uploads are
 scored by an untrained head and nothing passes the gate — the scheduler
 writes one on its first cycle (which also builds the anchor cache from

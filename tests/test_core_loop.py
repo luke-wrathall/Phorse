@@ -74,7 +74,11 @@ def test_stale_image_fades_more_with_other_platform_activity(tmp_path):
 
     def run_scenario(app_dir, with_busy_second_image: bool) -> tuple[float, float, float]:
         """Returns (s0, s1, s2) for image A: pre-rating, post-rating, post-stale."""
-        app = _fresh_app(app_dir)
+        # This tests the loss's fixed point (pooled-floor weighting), so each
+        # cycle should reach it: prox off. With prox on, one cycle is only a
+        # partial step toward the same fixed point, and the busier scenario's
+        # step budget is shared with image B, which confounds the comparison.
+        app = _fresh_app(app_dir, RETRAIN_PROX_WEIGHT=0.0)
         client = app.test_client()
         with app.app_context():
             run_retrain()
@@ -129,6 +133,44 @@ def test_stale_image_fades_more_with_other_platform_activity(tmp_path):
         f"more of its drop than the same stale image alone: lone={recovered_lone:.2f} "
         f"busy={recovered_busy:.2f}"
     )
+
+
+def test_retrain_cycle_nudges_rather_than_refits(tmp_path):
+    """RETRAIN_PROX_WEIGHT makes each cycle a partial step: one cycle moves a
+    freshly rated image less than an unregularized refit would, and repeated
+    cycles keep moving it further toward the rating.
+    """
+    from server.services.retrain import run_retrain
+
+    def scores_over_cycles(app_dir, prox_weight: float, cycles: int) -> list[float]:
+        app = _fresh_app(app_dir, RETRAIN_PROX_WEIGHT=prox_weight)
+        client = app.test_client()
+        with app.app_context():
+            run_retrain()
+        uploader = register(client, "uploader")
+        image = upload_png(client, uploader, solid_png(HORSE_COLORS[0]))
+        scores = [image["score"]]
+        for i in range(5):
+            token = register(client, f"rater{i}")
+            resp = client.post(
+                f"/api/images/{image['id']}/ratings", json={"rating": 0.0}, headers=auth(token)
+            )
+            assert resp.status_code == 200, resp.get_json()
+        for _ in range(cycles):
+            with app.app_context():
+                run_retrain()
+            scores.append(image_row(app, image["id"])["score"])
+        return scores
+
+    refit = scores_over_cycles(tmp_path / "refit", prox_weight=0.0, cycles=1)
+    nudged = scores_over_cycles(tmp_path / "nudged", prox_weight=1.0, cycles=4)
+
+    assert refit[0] - refit[1] > 0.3, f"sanity: an unregularized refit should move the score: {refit}"
+    assert nudged[1] < nudged[0], f"one prox cycle should still move the score: {nudged}"
+    assert nudged[1] > refit[1] + 0.5, (
+        f"one prox cycle should move less than a full refit: nudged={nudged} refit={refit}"
+    )
+    assert nudged[-1] < nudged[1] - 0.05, f"later cycles should keep drifting: {nudged}"
 
 
 def test_core_loop(app, client):

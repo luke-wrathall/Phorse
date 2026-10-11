@@ -66,6 +66,8 @@ def run_retrain() -> dict:
         lambda_anchor=cfg["LAMBDA_ANCHOR"],
         lambda_decay=cfg["LAMBDA_DECAY"],
         community_weight_floor=cfg["COMMUNITY_WEIGHT_FLOOR"],
+        epochs=cfg["RETRAIN_EPOCHS"],
+        prox_weight=cfg["RETRAIN_PROX_WEIGHT"],
     )
 
     model.reload_head()

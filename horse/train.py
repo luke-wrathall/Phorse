@@ -54,6 +54,12 @@ DEFAULT_LAMBDA_DECAY = 0.01  # per day -- ~70-day half-life; the "how fast cultu
 DEFAULT_COMMUNITY_WEIGHT_FLOOR = 3.0
 DEFAULT_EPOCHS = 200
 DEFAULT_LR = 1e-3
+# Proximal pull toward the warm-start head's weights: makes each retrain cycle
+# a *nudge* rather than a refit. Without it a ~33k-param head memorizes a
+# freshly rated image to its exact rating in one cycle (seen with real CLIP,
+# 2026-10-11), so lambda_decay barely matters. 0 disables; ignored when not
+# warm-starting.
+DEFAULT_PROX_WEIGHT = 0.0
 
 SECONDS_PER_DAY = 86400.0
 
@@ -77,6 +83,7 @@ def train_head(
     epochs: int = DEFAULT_EPOCHS,
     lr: float = DEFAULT_LR,
     head: HorseHead | None = None,
+    prox_weight: float = DEFAULT_PROX_WEIGHT,
     log_every: int | None = None,
 ) -> tuple[HorseHead, dict]:
     """Full-batch gradient descent on the combined anchor + community loss.
@@ -85,7 +92,16 @@ def train_head(
     of the frozen-backbone design is that retraining the head is cheap.
     Returns (head, {"anchor_loss", "community_loss", "final_loss"}) with the
     loss values from the last epoch.
+
+    `prox_weight` > 0 with a warm-start `head` adds
+    prox_weight * ||theta - theta_prev||^2, anchoring this cycle to the
+    previous one so repeated cycles drift gradually.
     """
+    prev_params = (
+        [p.detach().clone() for p in head.parameters()]
+        if head is not None and prox_weight > 0
+        else None
+    )
     head = head if head is not None else HorseHead()
     head.train()
     optimizer = torch.optim.Adam(head.parameters(), lr=lr)
@@ -115,6 +131,10 @@ def train_head(
             per_example = (rating_pred - rating_y) ** 2
             community_loss = torch.sum(rating_w * per_example) / weight_denom
             total = total + community_loss
+
+        if prev_params is not None:
+            prox = sum(torch.sum((p - q) ** 2) for p, q in zip(head.parameters(), prev_params))
+            total = total + prox_weight * prox
 
         total.backward()
         optimizer.step()
@@ -163,6 +183,7 @@ def train_from_store(
     community_weight_floor: float = DEFAULT_COMMUNITY_WEIGHT_FLOOR,
     epochs: int = DEFAULT_EPOCHS,
     lr: float = DEFAULT_LR,
+    prox_weight: float = DEFAULT_PROX_WEIGHT,
     log_every: int | None = None,
 ) -> dict:
     """One retrain cycle from the databases: anchors + ratings -> new head.pt.
@@ -193,6 +214,7 @@ def train_from_store(
         epochs=epochs,
         lr=lr,
         head=head,
+        prox_weight=prox_weight,
         log_every=log_every,
     )
     # atomic write: the API process may be reading head.pt (mtime hot-reload)
@@ -219,6 +241,8 @@ def main() -> None:
     parser.add_argument("--community-weight-floor", type=float, default=DEFAULT_COMMUNITY_WEIGHT_FLOOR)
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     parser.add_argument("--lr", type=float, default=DEFAULT_LR)
+    parser.add_argument("--prox-weight", type=float, default=DEFAULT_PROX_WEIGHT,
+                        help="Pull toward the --head-in weights (0 disables).")
     parser.add_argument("--log-every", type=int, default=50, help="Print loss every N epochs (0 to silence).")
     parser.add_argument("--rebuild-anchors", action="store_true", help="Force re-embedding the anchor set.")
     args = parser.parse_args()
@@ -236,6 +260,7 @@ def main() -> None:
         community_weight_floor=args.community_weight_floor,
         epochs=args.epochs,
         lr=args.lr,
+        prox_weight=args.prox_weight,
         log_every=args.log_every or None,
     )
     print(

@@ -162,6 +162,20 @@ That's load-bearing, not incidental: see `community_weight_floor` below.
   (`aggregate_new = aggregate_old * exp(-λΔt) + new_ratings`, no need to
   recompute over full history each cycle), and it's the standard default
   for "constant proportional fade" processes.
+- **Per-cycle proximal pull (`RETRAIN_PROX_WEIGHT`, 2026-10-11)**: each
+  retrain adds `prox_weight * ||θ - θ_prev||²` toward the warm-start
+  head, so a cycle *nudges* rather than refits. Found with real CLIP: the
+  64-hidden head has capacity to fit the anchors AND every rated image
+  exactly, so without it one vote snapped an image to its exact rating in
+  one cycle — and since both can be fit at once, no `λ` ratio changes
+  that fixed point. The prox term is a **speed limit, not a cap**: it
+  converges to the same fixed point over ~10 cycles at 1.0, so drift speed
+  is per *cycle* and scales with `RETRAIN_INTERVAL_SECONDS`. Rejected
+  alternative: pull toward a *fixed* anchors-only reference head (a true
+  per-image cap, but it never loosens as the platform grows — a second,
+  stiffer anchor that would bound how far culture can ever move). Head
+  size kept as-is; memorization is expected to matter less once there are
+  many images with overlapping ratings.
 - Alternatives considered but not chosen for the core mechanism: linear
   decay (hard cutoff, easier to explain to users), power-law decay (old
   ratings asymptotically linger, "cultural memory" feel), step-function
@@ -198,8 +212,8 @@ cycle on demand.
 
 Knobs (all `server/config.py`, `HORSE_*` env): `LAMBDA_ANCHOR` (0.25),
 `LAMBDA_DECAY` (0.01), `COMMUNITY_WEIGHT_FLOOR` (3.0), `FEED_MIX`
-("0.5,0.3,0.2"), `RETRAIN_INTERVAL_SECONDS` (600). None tuned against real
-data yet.
+("0.5,0.3,0.2"), `RETRAIN_INTERVAL_SECONDS` (600), `RETRAIN_EPOCHS` (200),
+`RETRAIN_PROX_WEIGHT` (1.0). None tuned against real data yet.
 
 **`HORSE_FAKE_EMBEDDER=1`** swaps CLIP for a deterministic hash-based
 stand-in (`horse/embed.py::FakeEmbedder`, via `get_embedder()`) — no

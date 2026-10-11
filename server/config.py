@@ -36,6 +36,11 @@ class Config:
     LAMBDA_ANCHOR = float(os.environ.get("HORSE_LAMBDA_ANCHOR", "0.25"))
     LAMBDA_DECAY = float(os.environ.get("HORSE_LAMBDA_DECAY", "0.01"))
     COMMUNITY_WEIGHT_FLOOR = float(os.environ.get("HORSE_COMMUNITY_WEIGHT_FLOOR", "3.0"))
+    # Per-cycle training: each retrain warm-starts from head.pt and is pulled
+    # toward those weights, so a cycle nudges rather than refits. Drift speed
+    # is therefore per *cycle* -- it scales with RETRAIN_INTERVAL_SECONDS.
+    RETRAIN_EPOCHS = int(os.environ.get("HORSE_RETRAIN_EPOCHS", "200"))
+    RETRAIN_PROX_WEIGHT = float(os.environ.get("HORSE_RETRAIN_PROX_WEIGHT", "1.0"))
 
     # Feed pool mix: consensus, contested, exploration. Must sum > 0.
     FEED_MIX = tuple(

@@ -68,6 +68,20 @@ def _ensure_loaded() -> dict:
     return _state
 
 
+def warm_up(app) -> threading.Thread:
+    """Load CLIP + the head in a background thread so the first upload
+    doesn't pay the ~25s cold start. A request that arrives mid-load just
+    waits on `_lock` in `_ensure_loaded` rather than loading twice."""
+
+    def _load() -> None:
+        with app.app_context():
+            _ensure_loaded()
+
+    thread = threading.Thread(target=_load, name="model-warm-up", daemon=True)
+    thread.start()
+    return thread
+
+
 def _maybe_reload_head() -> None:
     """Reload the head if HEAD_PATH is newer than the copy we hold."""
     path = Path(current_app.config["HEAD_PATH"])

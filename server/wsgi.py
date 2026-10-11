@@ -5,10 +5,26 @@
 
 from __future__ import annotations
 
+import os
+
 from . import create_app
+from .services import model
 
 app = create_app()
 
+# Preload CLIP so the first upload isn't slow. Skip the debug reloader's
+# watcher process -- only its child (WERKZEUG_RUN_MAIN) serves requests.
+if __name__ != "__main__" or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+    model.warm_up(app)
+
 if __name__ == "__main__":
     # threaded=True so a slow CLIP embed on one request doesn't block others.
-    app.run(host="127.0.0.1", port=8000, debug=True, threaded=True)
+    # tests/ excluded from the reloader: editing a test shouldn't restart the
+    # API and throw away the loaded model.
+    app.run(
+        host="127.0.0.1",
+        port=8000,
+        debug=True,
+        threaded=True,
+        exclude_patterns=["*/tests/*", "*\\tests\\*"],
+    )

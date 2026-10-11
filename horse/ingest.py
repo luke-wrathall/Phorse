@@ -57,6 +57,7 @@ def ingest(
 
     conn = connect(training_db_path)
     images: set[str] = set()
+    synced = 0
     try:
         for image_id, user_id, rating, created_at, blob in rows:
             embedding = np.frombuffer(blob, dtype=np.float32)
@@ -64,10 +65,11 @@ def ingest(
                 continue  # skip a malformed/legacy embedding rather than abort
             add_rating(conn, str(image_id), str(user_id), embedding, float(rating), float(created_at))
             images.add(str(image_id))
+            synced += 1
     finally:
         conn.close()
 
-    return {"ratings_synced": len(rows), "images": len(images)}
+    return {"ratings_synced": synced, "images": len(images)}
 
 
 def main() -> None:

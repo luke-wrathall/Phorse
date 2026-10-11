@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 from flask import current_app
-from PIL import Image
+from PIL import Image, ImageOps
 from werkzeug.datastructures import FileStorage
 
 from horse.gate import passes_gate
@@ -23,6 +23,9 @@ from ..errors import ApiError
 from . import model
 
 CAPTION_MAX = 280
+# Counter-clockwise degrees tried at upload; 0 must come first (upright).
+# Quarter turns only: the case is sideways phone photos of drawings.
+ROTATIONS = (0, 90, 270)
 
 
 def _clean_caption(caption: str | None) -> str | None:
@@ -32,15 +35,49 @@ def _clean_caption(caption: str | None) -> str | None:
     return caption or None
 
 
+def _best_rotation(image: Image.Image) -> tuple[Image.Image, np.ndarray, float]:
+    """Score the image at each of ROTATIONS; use a rotation only when it is
+    what gets the image through the gate.
+
+    Phone photos of drawings often arrive sideways with no EXIF tag, and the
+    head reads a sideways horse as much less of a horse (a pen drawing:
+    1.27 upright vs 2.90 rotated). A rotation is kept only if upright fails
+    the gate, the rotation passes, and it beats upright by
+    UPLOAD_ROTATION_MARGIN -- otherwise the image is stored as sent, so a
+    drifted-down horse photo isn't saved upside down for a small gain.
+    Raises false passes slightly (measured with 180 also tried, so an
+    upper bound: held-out PACS non-horse sketches 7% -> 13%, other styles
+    0% -> 3%).
+    """
+    threshold = current_app.config["GATE_THRESHOLD"]
+    margin = current_app.config["UPLOAD_ROTATION_MARGIN"]
+    candidates = []
+    for angle in ROTATIONS:
+        rotated = image if angle == 0 else image.rotate(angle, expand=True)
+        embedding = model.embed_image(rotated)
+        candidates.append((rotated, embedding, model.score_embedding(embedding)))
+    upright = candidates[0]
+    best = max(candidates, key=lambda c: c[2])
+    rescues = (
+        not passes_gate(upright[2], threshold)
+        and passes_gate(best[2], threshold)
+        and best[2] >= upright[2] + margin
+    )
+    return best if rescues else upright
+
+
 def upload_image(file: FileStorage, owner_id: int, caption: str | None = None) -> dict:
-    """Embed + score + gate one uploaded image, store it, return the verdict."""
+    """Embed + score + gate one uploaded image, store it, return the verdict.
+
+    The stored file, embedding and score are all of the best-scoring
+    rotation (see `_best_rotation`), so the feed shows it the right way up.
+    """
     try:
-        image = Image.open(file.stream).convert("RGB")
+        image = ImageOps.exif_transpose(Image.open(file.stream)).convert("RGB")
     except Exception as exc:  # noqa: BLE001 -- report any bad-upload reason
         raise ApiError(f"could not read image: {exc}", 400)
 
-    embedding = model.embed_image(image)
-    score = model.score_embedding(embedding)
+    image, embedding, score = _best_rotation(image)
     threshold = current_app.config["GATE_THRESHOLD"]
     passed = passes_gate(score, threshold)
 

@@ -27,7 +27,7 @@ class Config:
     # Stage 2 head checkpoint + gate threshold (mirrors horse.gate defaults).
     HEAD_PATH = os.environ.get("HORSE_HEAD_PATH", "horse/data/head.pt")
     GATE_THRESHOLD = float(os.environ.get("HORSE_GATE_THRESHOLD", "2.5"))
-    # Uploads are scored at 0/90/270 degrees; a rotation is kept (and
+    # Uploads are scored at 0/90/180/270 degrees; a rotation is kept (and
     # saved) only if it beats upright by this much. Set very high to disable.
     UPLOAD_ROTATION_MARGIN = float(os.environ.get("HORSE_UPLOAD_ROTATION_MARGIN", "0.5"))
 

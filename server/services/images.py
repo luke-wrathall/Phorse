@@ -24,8 +24,8 @@ from . import model
 
 CAPTION_MAX = 280
 # Counter-clockwise degrees tried at upload; 0 must come first (upright).
-# Quarter turns only: the case is sideways phone photos of drawings.
-ROTATIONS = (0, 90, 270)
+# 180 kept on purpose: an upside-down horse that scores its way in is funny.
+ROTATIONS = (0, 90, 180, 270)
 
 
 def _clean_caption(caption: str | None) -> str | None:
@@ -45,9 +45,8 @@ def _best_rotation(image: Image.Image) -> tuple[Image.Image, np.ndarray, float]:
     the gate, the rotation passes, and it beats upright by
     UPLOAD_ROTATION_MARGIN -- otherwise the image is stored as sent, so a
     drifted-down horse photo isn't saved upside down for a small gain.
-    Raises false passes slightly (measured with 180 also tried, so an
-    upper bound: held-out PACS non-horse sketches 7% -> 13%, other styles
-    0% -> 3%).
+    Raises false passes slightly (held-out PACS non-horse sketches
+    7% -> 13%, other styles 0% -> 3%).
     """
     threshold = current_app.config["GATE_THRESHOLD"]
     margin = current_app.config["UPLOAD_ROTATION_MARGIN"]

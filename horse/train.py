@@ -2,21 +2,29 @@
 
     L = lambda_anchor * mean(anchor_sq_err)
         + sum_i( w(t_i) * rating_sq_err_i ) / max(sum_i w(t_i), community_weight_floor)
+        + prox_weight * ||theta - theta_prev||^2        (warm-start only)
     w(t) = exp(-lambda_decay * elapsed_days)
 
 The anchor term is a plain mean over the fixed anchor set (anchors.py).
 The community term is a recency-weighted mean of the per-vote squared
-errors -- BUT the denominator is floored at `community_weight_floor`. So:
+errors, pooled over every rating on every image -- one platform-wide
+numerator and denominator, not one pair per image. So:
 
-- Once an image has ~floor effective (recency-weighted) votes or more, the
-  community term is a true weighted mean and `lambda_anchor` is a *constant
-  ratio* between the anchor pull and the community pull -- it is not
-  diluted by rating volume (an earlier version summed the community term,
-  which let the anchor be swamped after a few dozen ratings).
-- Below that -- a barely-rated image, or one whose ratings have decayed
-  with age and had no fresh votes -- the community term shrinks and the
-  anchor pulls the score back toward the reference. This is what makes
-  stale culture fade rather than persist forever.
+- `lambda_anchor` is a *constant ratio* between the anchor pull and the
+  community pull -- it is not diluted by rating volume (an earlier version
+  summed the community term, which let the anchor be swamped after a few
+  dozen ratings).
+- `community_weight_floor` floors that single pooled denominator. It is
+  numerical safety for near-zero total vote weight (launch, a platform-wide
+  quiet spell); above that it is inert. It is NOT a per-image threshold.
+- Stale ratings fade toward the anchor *relative to* the platform's other,
+  fresher weighted activity -- a property of the pooled mean, not a fixed
+  per-image guarantee. Pooling is deliberate: it caps an attacker's
+  leverage at their share of all platform votes, however many images they
+  spread them over (see CLAUDE.md, "Deliberately not per-image").
+- The prox term pulls toward the previous cycle's head, so each retrain
+  nudges rather than refits. It is a speed limit, not a cap: repeated
+  cycles converge to the same fixed point, just gradually.
 
 This is the "one unified head, no separate gate/rating models" mechanism
 decided in CLAUDE.md: gate.py and score.py both read the checkpoint this
@@ -44,13 +52,13 @@ from horse.storage import all_ratings, connect
 DEFAULT_RATINGS_DB = "horse/data/ratings.db"
 DEFAULT_HEAD_OUT = "horse/data/head.pt"
 
-# lambda_anchor is now a ratio between two mean losses: 0.25 -> the anchor
-# is ~1/5 of the combined loss for a well-rated image, always. Small but
+# lambda_anchor is a ratio between two mean losses: 0.25 weights the anchor
+# mean 1:4 against the community mean, whatever the vote volume. Small but
 # constant "rubber band".
 DEFAULT_LAMBDA_ANCHOR = 0.25
 DEFAULT_LAMBDA_DECAY = 0.01  # per day -- ~70-day half-life; the "how fast culture moves" knob
-# Effective recency-weighted votes before the community fully owns an
-# image's target. Below this the anchor pulls a stale/barely-rated image back.
+# Floor on the platform-wide sum of recency weights (not per image): keeps
+# the community term from blowing up when total effective votes are near zero.
 DEFAULT_COMMUNITY_WEIGHT_FLOOR = 3.0
 DEFAULT_EPOCHS = 200
 DEFAULT_LR = 1e-3
@@ -58,7 +66,7 @@ DEFAULT_LR = 1e-3
 # a *nudge* rather than a refit. Without it a ~33k-param head memorizes a
 # freshly rated image to its exact rating in one cycle (seen with real CLIP,
 # 2026-10-11), so lambda_decay barely matters. 0 disables; ignored when not
-# warm-starting.
+# warm-starting. The retrain loop sets it via config.RETRAIN_PROX_WEIGHT (1.0).
 DEFAULT_PROX_WEIGHT = 0.0
 
 SECONDS_PER_DAY = 86400.0
@@ -114,8 +122,8 @@ def train_head(
         rating_x = torch.from_numpy(rating_embeddings)
         rating_y = torch.from_numpy(rating_targets)
         rating_w = torch.from_numpy(rating_weights)
-        # floored denominator: weighted mean once past the floor, decaying
-        # community influence below it (see module docstring).
+        # one pooled denominator for all ratings, floored only for numerical
+        # safety at near-zero total weight (see module docstring).
         weight_denom = torch.clamp(rating_w.sum(), min=community_weight_floor)
 
     anchor_loss = community_loss = total = torch.tensor(0.0)

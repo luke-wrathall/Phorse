@@ -101,6 +101,137 @@ class CIFAR10AnchorSource(AnchorSource):
                 yield f"cifar10-neg-{idx}", image.convert("RGB"), NOT_HORSE_TARGET
 
 
+class PACSAnchorSource(AnchorSource):
+    """PACS (Photo / Art painting / Cartoon / Sketch): horses as positives,
+    the other six classes (dog, elephant, giraffe, guitar, house, person) as
+    negatives -- sampled per domain so every style has matched negatives.
+
+    This is what lets *drawn* horses through the gate: without it the head
+    only ever saw photos and learned "photo of a horse", so users with no
+    horse to photograph had no way in. Negatives must share each style, or
+    the head would learn "drawing = horse" and pass any doodle.
+
+    Fetched from the Hugging Face Hub (`flwrlabs/pacs`, one ~190 MB parquet,
+    cached by huggingface_hub). Needs `pyarrow` (only when building anchors).
+    Sampling is seeded, so rebuilds are reproducible and `held_out()` yields
+    the rows NOT used as anchors, for validation.
+    """
+
+    name = "pacs"
+    REPO_ID = "flwrlabs/pacs"
+    FILENAME = "data/train-00000-of-00001.parquet"
+    HORSE_LABEL = 4
+    DOMAINS = ("photo", "art_painting", "cartoon", "sketch")
+
+    def __init__(
+        self,
+        domains: Iterable[str] = DOMAINS,
+        n_horse_per_domain: int = 100,
+        n_negative_per_domain: int = 100,
+        seed: int = 0,
+    ):
+        self.domains = tuple(domains)
+        self.n_horse = n_horse_per_domain
+        self.n_negative = n_negative_per_domain
+        self.seed = seed
+
+    def _table(self):
+        import pyarrow.parquet as pq  # imported lazily: only needed when building anchors
+        from huggingface_hub import hf_hub_download
+
+        path = hf_hub_download(self.REPO_ID, self.FILENAME, repo_type="dataset")
+        return pq.read_table(path)
+
+    def _split(self, domains: list[str], labels: list[int]) -> set[int]:
+        """Row indices chosen as anchors: per domain, n horses + n negatives
+        spread round-robin across the non-horse classes."""
+        rng = np.random.default_rng(self.seed)
+        chosen: set[int] = set()
+        for domain in self.domains:
+            by_label: dict[int, list[int]] = {}
+            for i, (d, label) in enumerate(zip(domains, labels)):
+                if d == domain:
+                    by_label.setdefault(label, []).append(i)
+            for rows in by_label.values():
+                rng.shuffle(rows)
+            chosen.update(by_label.get(self.HORSE_LABEL, [])[: self.n_horse])
+            negative_labels = sorted(label for label in by_label if label != self.HORSE_LABEL)
+            taken = 0
+            depth = 0
+            while taken < self.n_negative and any(len(by_label[l]) > depth for l in negative_labels):
+                for label in negative_labels:
+                    if taken < self.n_negative and len(by_label[label]) > depth:
+                        chosen.add(by_label[label][depth])
+                        taken += 1
+                depth += 1
+        return chosen
+
+    def _rows(self, anchors: bool) -> Iterator[tuple[str, Image.Image, float, str]]:
+        import io
+
+        table = self._table()
+        domains = table.column("domain").to_pylist()
+        labels = table.column("label").to_pylist()
+        chosen = self._split(domains, labels)
+        images = table.column("image")
+        for i, (domain, label) in enumerate(zip(domains, labels)):
+            if domain not in self.domains or (i in chosen) != anchors:
+                continue
+            image = Image.open(io.BytesIO(images[i].as_py()["bytes"])).convert("RGB")
+            target = HORSE_TARGET if label == self.HORSE_LABEL else NOT_HORSE_TARGET
+            yield f"pacs-{domain}-{label}-{i}", image, target, domain
+
+    def __iter__(self) -> Iterator[tuple[str, Image.Image, float]]:
+        for example_id, image, target, _domain in self._rows(anchors=True):
+            yield example_id, image, target
+
+    def held_out(self) -> Iterator[tuple[str, Image.Image, float, str]]:
+        """(id, image, target, domain) for every row not used as an anchor."""
+        return self._rows(anchors=False)
+
+
+class CuratedFolderAnchorSource(AnchorSource):
+    """Operator-curated anchors from a folder -- the manual escape hatch.
+
+        horse/data/anchors_curated/
+            horse/        -> target 5
+            not_horse/    -> target 0
+            3.5/          -> any folder named as a number is that target
+
+    A missing folder yields nothing, so this is safe to leave in
+    DEFAULT_SOURCES. Rebuild the cache after changing it:
+    `python -m horse.anchors --rebuild`.
+    """
+
+    name = "curated"
+    EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+
+    def __init__(self, root: str | Path = "horse/data/anchors_curated"):
+        self.root = Path(root)
+
+    @staticmethod
+    def _target(folder: str) -> float | None:
+        if folder == "horse":
+            return HORSE_TARGET
+        if folder == "not_horse":
+            return NOT_HORSE_TARGET
+        try:
+            return float(folder)
+        except ValueError:
+            return None
+
+    def __iter__(self) -> Iterator[tuple[str, Image.Image, float]]:
+        if not self.root.is_dir():
+            return
+        for folder in sorted(p for p in self.root.iterdir() if p.is_dir()):
+            target = self._target(folder.name)
+            if target is None:
+                continue
+            for path in sorted(folder.iterdir()):
+                if path.suffix.lower() in self.EXTENSIONS:
+                    yield f"curated-{folder.name}-{path.name}", Image.open(path).convert("RGB"), target
+
+
 # Future thematic hard-negative source: real horse photos vs. zebra photos
 # (visually horse-like but not a horse -- a good stress test for the
 # boundary). To add it: implement
@@ -110,7 +241,11 @@ class CIFAR10AnchorSource(AnchorSource):
 # (download the CycleGAN horse2zebra zip, yield HORSE_TARGET for trainA,
 # NOT_HORSE_TARGET for trainB) and append an instance to DEFAULT_SOURCES.
 # build_anchor_set() and train.py are already source-agnostic.
-DEFAULT_SOURCES: list[AnchorSource] = [CIFAR10AnchorSource()]
+DEFAULT_SOURCES: list[AnchorSource] = [
+    CIFAR10AnchorSource(),
+    PACSAnchorSource(),
+    CuratedFolderAnchorSource(),
+]
 
 
 @dataclass

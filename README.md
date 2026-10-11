@@ -61,7 +61,7 @@ the other `HORSE_*` vars — see `server/config.py`). It loads the trained
 head from `horse/data/head.pt`; if that file is missing, uploads are
 scored by an untrained head and nothing passes the gate — the scheduler
 writes one on its first cycle (which also builds the anchor cache from
-CIFAR-10 on first run, a one-time download).
+CIFAR-10 + PACS on first run, a one-time ~350 MB download).
 
 ## Data
 

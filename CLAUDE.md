@@ -115,6 +115,19 @@ That's load-bearing, not incidental: see `community_weight_floor` below.
   (you) can lightly curate/update the anchor set manually as an escape
   hatch if drift goes somewhere undesirable — the community does not
   control the anchor set.
+- **Anchor set contents (2026-10-11)**: `horse/anchors.py::DEFAULT_SOURCES`
+  = CIFAR-10 (32px photos) + **PACS** (photo / art painting / cartoon /
+  sketch, 100 horse + 100 style-matched non-horse per style) + a curated
+  folder (`horse/data/anchors_curated/{horse,not_horse,<number>}/`).
+  **Drawn horses are a first-class goal**: most users have no horse to
+  photograph, so hand/computer-drawn horses must be able to pass the gate.
+  Rule: every style added as positives needs **matched negatives in the
+  same style**, or the head learns "drawing = horse". Check any anchor
+  change with `python -m horse.check_anchors --anchor-cache old.npz
+  --anchor-cache new.npz` (held-out PACS pass rates per style + scores for
+  `tests/test_horse/` and stored uploads) before swapping it in; then
+  reset `head.pt` to an anchors-only head, since the prox pull would
+  otherwise absorb new anchors only slowly.
 - **Community loss**: each rating weighted by recency,
   `w(t) = exp(-λ_decay * Δt)`. `λ_decay` is the main "how fast does
   culture move" knob.

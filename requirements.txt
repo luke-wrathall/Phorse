@@ -3,3 +3,5 @@ torch
 torchvision
 Pillow
 numpy
+# PACS anchor source (horse/anchors.py). <18: newer pyarrow requires NumPy 2.
+pyarrow<18

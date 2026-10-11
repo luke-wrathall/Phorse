@@ -1,10 +1,12 @@
 """Feed endpoint.
 
-    GET /api/feed?limit=20&offset=0  -> {items: [...], next_offset: <int|null>}
+    GET /api/feed?limit=20&offset=0&session=<id>  -> {items: [...], next_offset: <int|null>}
 
 The feed is ranked (strategy set by config FEED_STRATEGY, see
 services/feed.py), so pagination is by offset: pass back the previous
 response's `next_offset` for the next page (null means end of feed).
+`session` (optional, client-generated once per page load) keeps already
+loaded items fixed in place for that page load -- see services/feed.py.
 
 Auth is optional: with a bearer token, strategies that mix in "horses you
 haven't rated" use the caller's ratings; logged out, nothing counts as rated.
@@ -28,6 +30,11 @@ def feed():
         offset = int(request.args.get("offset", 0))
     except (TypeError, ValueError):
         raise ApiError("limit and offset must be integers")
+    session = request.args.get("session") or None
+    if session and len(session) > feed_service.SESSION_ID_MAX_LEN:
+        raise ApiError("session id too long")
     return jsonify(
-        feed_service.get_feed(limit=limit, offset=offset, user_id=optional_user_id())
+        feed_service.get_feed(
+            limit=limit, offset=offset, user_id=optional_user_id(), session=session
+        )
     )

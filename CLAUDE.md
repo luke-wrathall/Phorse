@@ -262,16 +262,25 @@ picks one for everyone (server config switch, not a UI choice):
 - `blend` (default) — the three-pool blend above.
 - `contested` — most divisive first (`_contested_score`), interleaved with
   horses the viewer hasn't rated (newest first).
-- `consensus` — highest-rated first, interleaved the same way.
-- `top` — straight highest-rated, identical for everyone.
+- `consensus` — highest model score first, interleaved the same way.
+- `top` — straight highest model score, identical for everyone.
 
-"Highest rated" = shrunk mean (`_shrunk_mean`: recency-weighted mean pulled
-toward the platform mean by `SAT_K` effective votes, so one 5-star vote
-can't top the chart). "Unrated by the viewer" comes from the ratings table
+"Highest" = the **model's** horseness score (`images.score`, re-scored every
+retrain), deliberately not user ratings — ratings reach the ranking only
+through the drift head. "Unrated by the viewer" comes from the ratings table
 — a horse scrolled past without rating stays "unseen" (no impressions
 tracking). `HORSE_FEED_UNSEEN_SHARE` (0.5) is the fraction of slots it gets.
 The feed endpoint takes an optional bearer token for this; logged out,
-nothing counts as rated. This is the first per-viewer element in the feed
+nothing counts as rated.
+
+**Feed sessions (no on-screen glitching):** the feed page sends a `session`
+id generated once per page load. The server remembers which images it has
+served to that (viewer, session); already-served positions are replayed
+as-is (refetch after rating returns the same images in the same slots,
+details live), and each *new* page is ranked fresh minus what's been served
+— so new uploads, retrain re-scores and the viewer's own ratings only shape
+content not yet loaded. Rated horses leave the "unrated" slots on the next
+page load. In-process memory, 1h TTL. This is the first per-viewer element in the feed
 — a filter on the viewer's own ratings, not a personalized model, so the
 "no per-user personalization" spirit above still holds.
 

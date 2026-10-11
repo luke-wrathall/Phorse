@@ -4,14 +4,23 @@
                 algorithm"), community-global.
 - contested  -- most divisive horses first, interleaved with horses the
                 viewer hasn't rated yet (newest first).
-- consensus  -- highest-rated horses first, interleaved the same way.
-- top        -- straight highest-rated, same for everyone.
+- consensus  -- highest-scored horses first, interleaved the same way.
+- top        -- straight highest-scored, same for everyone.
 
-"Highest rated" is a shrunk mean: the recency-weighted mean pulled toward
-the platform-wide mean by SAT_K effective votes, so one 5-star vote can't
-top the chart. "Unrated by the viewer" uses the ratings table -- an image
-scrolled past without rating stays "unseen". FEED_UNSEEN_SHARE sets the
-fraction of slots it gets. Logged out, nothing counts as rated.
+"Highest scored" is the model's own horseness score (images.score,
+re-scored every retrain), not user ratings. "Unrated by the viewer" uses
+the ratings table -- an image scrolled past without rating stays
+"unseen". FEED_UNSEEN_SHARE sets the fraction of slots it gets. Logged
+out, nothing counts as rated.
+
+Feed sessions: the client sends a `session` id it generates once per page
+load, and the server remembers which images it has already served to that
+(viewer, session), in order. Already-served positions never change -- a
+refetch of loaded pages (e.g. after rating) returns the same images in the
+same slots, with live details -- so nothing on screen jumps or vanishes.
+Each *new* page is ranked fresh and skips everything already served, so
+new uploads, retrain re-scores and the viewer's own ratings shape what
+loads next. Without a session every request is ranked fresh.
 
 The blend scores each gate-passing image on three pools:
 
@@ -27,8 +36,7 @@ since settled drops out of the contested pool over time.
 
 The blend weights (config FEED_MIX) and the per-image pool math are
 deterministic and independent of the rest of the catalogue, so pagination
-is stable. (The interleaved strategies shift when the viewer rates
-something mid-scroll, since that image leaves their "unrated" list.) At MVP scale this loads the whole passed catalogue + all
+is stable for already-loaded items within a feed session (see above). At MVP scale this loads the whole passed catalogue + all
 ratings per request -- fine for now, revisit if it gets big (nubbins.md).
 
 The response deliberately exposes no variance / pool / "contested" fields
@@ -38,7 +46,9 @@ The response deliberately exposes no variance / pool / "contested" fields
 from __future__ import annotations
 
 import math
+import threading
 import time
+from collections import OrderedDict
 
 from flask import current_app
 
@@ -52,8 +62,42 @@ MAX_LIMIT = 50
 SAT_K = 3.0
 
 STRATEGIES = ("blend", "contested", "consensus", "top")
-# Platform-wide prior for the shrunk mean when nothing is rated yet.
-NEUTRAL_RATING = 2.5
+
+# Images already served per feed session, keyed by (viewer user_id or None,
+# client session id), oldest session first. In-process memory: fine for the
+# single dev server; multiple workers would each keep their own (nubbins.md).
+SESSION_TTL_SECONDS = 3600
+SESSION_MAX = 1000
+SESSION_ID_MAX_LEN = 64
+_sessions: OrderedDict[tuple[int | None, str], tuple[float, list[str]]] = OrderedDict()
+_sessions_lock = threading.Lock()
+
+
+def _session_page(
+    key: tuple[int | None, str], offset: int, limit: int, compute_order
+) -> tuple[list[str], bool]:
+    """(image ids for this page, whether more exist) within a feed session.
+
+    Positions already served are replayed as-is; past them, the page is
+    filled from a fresh ranking minus everything already served.
+    """
+    now = time.time()
+    end = offset + limit
+    with _sessions_lock:
+        while _sessions and (
+            len(_sessions) >= SESSION_MAX
+            or now - next(iter(_sessions.values()))[0] > SESSION_TTL_SECONDS
+        ):
+            _sessions.popitem(last=False)
+        served = _sessions.setdefault(key, (now, []))[1]
+        remaining: list[str] = []
+        if len(served) <= end:
+            already = set(served)
+            remaining = [i for i in compute_order() if i not in already]
+            take = max(0, end - len(served))
+            served.extend(remaining[:take])
+            remaining = remaining[take:]
+        return served[offset:end], len(served) > end or bool(remaining)
 
 
 def _pool_terms(ratings: list[tuple[float, float]], lambda_decay: float, now: float):
@@ -86,11 +130,6 @@ def _blended_score(mean: float, var: float, weight: float, mix: tuple[float, flo
     return (mix[0] * consensus + mix[1] * contested + mix[2] * exploration) / total
 
 
-def _shrunk_mean(mean: float, weight: float, prior: float) -> float:
-    """Recency-weighted mean pulled toward `prior` by SAT_K effective votes."""
-    return (weight * mean + SAT_K * prior) / (weight + SAT_K)
-
-
 def _contested_score(var: float, weight: float) -> float:
     return (var / (1.0 + var)) * (weight / (weight + SAT_K))
 
@@ -118,7 +157,12 @@ def _interleave(primary: list[dict], unseen: list[dict], share: float) -> list[d
     return out
 
 
-def get_feed(limit: int = DEFAULT_LIMIT, offset: int = 0, user_id: int | None = None) -> dict:
+def get_feed(
+    limit: int = DEFAULT_LIMIT,
+    offset: int = 0,
+    user_id: int | None = None,
+    session: str | None = None,
+) -> dict:
     limit = max(1, min(limit, MAX_LIMIT))
     offset = max(0, offset)
     cfg = current_app.config
@@ -170,13 +214,18 @@ def get_feed(limit: int = DEFAULT_LIMIT, offset: int = 0, user_id: int | None = 
             }
         )
 
-    ranked = [
-        e["item"]
-        for e in _rank(entries, strategy, mix, cfg["FEED_UNSEEN_SHARE"], rated_by_viewer)
-    ]
-    page = ranked[offset : offset + limit]
-    next_offset = offset + limit if offset + limit < len(ranked) else None
-    return {"items": page, "next_offset": next_offset}
+    def compute_order() -> list[str]:
+        ranked = _rank(entries, strategy, mix, cfg["FEED_UNSEEN_SHARE"], rated_by_viewer)
+        return [e["item"]["id"] for e in ranked]
+
+    if session:
+        page_ids, has_more = _session_page((user_id, session), offset, limit, compute_order)
+    else:
+        order = compute_order()
+        page_ids, has_more = order[offset : offset + limit], offset + limit < len(order)
+    items_by_id = {e["item"]["id"]: e["item"] for e in entries}
+    page = [items_by_id[i] for i in page_ids if i in items_by_id]
+    return {"items": page, "next_offset": offset + limit if has_more else None}
 
 
 def _rank(
@@ -195,17 +244,11 @@ def _rank(
     if strategy == "blend":
         return by(lambda e: _blended_score(e["mean"], e["var"], e["weight"], mix))
 
-    total_weight = sum(e["weight"] for e in entries)
-    prior = (
-        sum(e["mean"] * e["weight"] for e in entries) / total_weight
-        if total_weight
-        else NEUTRAL_RATING
-    )
-    top_rated = by(lambda e: _shrunk_mean(e["mean"], e["weight"], prior))
+    top_scored = by(lambda e: e["item"]["score"])
     if strategy == "top":
-        return top_rated
+        return top_scored
 
-    primary = top_rated if strategy == "consensus" else by(
+    primary = top_scored if strategy == "consensus" else by(
         lambda e: _contested_score(e["var"], e["weight"])
     )
     unseen = [e for e in by(lambda e: 0.0) if e["item"]["id"] not in rated_by_viewer]

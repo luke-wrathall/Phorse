@@ -5,10 +5,17 @@
 	import type { FeedPage } from '$lib/types';
 	import RateWidget from '$lib/components/RateWidget.svelte';
 
+	// One feed session per page load: the server keeps every post it has
+	// already sent fixed in place, so rating (which refetches the feed) never
+	// moves or drops a loaded post. New pages are ranked fresh. Coming back
+	// to the page starts a new session.
+	const session = crypto.randomUUID();
+
 	const feed = createInfiniteQuery<FeedPage, Error, { pages: FeedPage[] }, string[], number>(
 		() => ({
-			queryKey: ['feed'],
-			queryFn: ({ pageParam }) => api<FeedPage>(`/api/feed?limit=12&offset=${pageParam}`),
+			queryKey: ['feed', session],
+			queryFn: ({ pageParam }) =>
+				api<FeedPage>(`/api/feed?limit=12&offset=${pageParam}&session=${session}`),
 			initialPageParam: 0,
 			getNextPageParam: (last) => last.next_offset ?? undefined
 		})

@@ -5,8 +5,8 @@
 # automatically, so they're skipped. Keeps the last 14 days.
 #
 # Run by phorse-backup.timer. These copies sit on the same server, so they
-# guard against mistakes, not against losing the server -- turn on
-# DigitalOcean's droplet backups too (deploy/README.md).
+# guard against mistakes, not against losing the server -- pull copies
+# off it regularly (deploy/README.md "Day to day").
 set -euo pipefail
 
 APP=/srv/phorse

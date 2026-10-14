@@ -69,8 +69,8 @@ CIFAR-10 + PACS on first run, a one-time ~350 MB download).
 
 ## Deploy
 
-A private beta on one DigitalOcean droplet, behind a site-wide password:
-see `deploy/README.md`.
+A private beta on one Azure VM, behind a site-wide password -- the
+server config, services and scripts are in `deploy/`.
 
 ## Data
 

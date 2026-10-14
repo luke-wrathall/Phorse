@@ -37,9 +37,10 @@ against real score distributions (none exist yet) — which needs real users
 rating, so it now depends on getting the site in front of people.
 
 **Private beta deployment (2026-10-14)** — to get real users rating: one
-DigitalOcean droplet (GitHub Student Pack credit) + free domain, behind a
+Azure VM (Azure for Students credit, ~2½-3 months of a 4 GB VM) behind a
 **site-wide shared password** (Caddy basic auth), invited users only.
-Everything is in `deploy/` — `deploy/README.md` is the step-by-step. One
+Everything is in `deploy/`; the step-by-step guide `deploy/README.md` is
+git-ignored (local only). One
 gunicorn worker on purpose (in-memory feed sessions, one CLIP copy).
 Cambridge-only sign-on was considered and declined. The password is what
 makes deferring the items below acceptable for now; **going public needs

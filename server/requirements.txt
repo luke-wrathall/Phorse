@@ -3,3 +3,6 @@
 Flask>=3.0
 flask-cors>=4.0
 PyJWT>=2.8
+# Production WSGI server (deploy/phorse-api.service). Linux/macOS only --
+# local dev uses `python -m server.wsgi`.
+gunicorn>=22; sys_platform != "win32"

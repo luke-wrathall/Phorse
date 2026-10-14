@@ -29,15 +29,26 @@ from collapsing.
 - ✅ end-to-end proof — `tests/test_core_loop.py` (drift down under
   ratings, anchor bounds it, decay pulls it back).
 
-Remaining before calling MVP done: run the manual real-CLIP pass end to
-end (not just the fake-embedder test); tune the `λ` / floor / mix knobs
-against real score distributions (none exist yet).
+Manual real-CLIP pass end to end: ✅ done 2026-10-11 (upload, gate, rate,
+retrain, re-score all work on real CLIP).
 
-Still deferred (NOT MVP): deployment / public hosting, upload guards +
+Remaining before calling MVP done: tune the `λ` / floor / mix knobs
+against real score distributions (none exist yet) — which needs real users
+rating, so it now depends on getting the site in front of people.
+
+**Private beta deployment (2026-10-14)** — to get real users rating: one
+DigitalOcean droplet (GitHub Student Pack credit) + free domain, behind a
+**site-wide shared password** (Caddy basic auth), invited users only.
+Everything is in `deploy/` — `deploy/README.md` is the step-by-step. One
+gunicorn worker on purpose (in-memory feed sessions, one CLIP copy).
+Cambridge-only sign-on was considered and declined. The password is what
+makes deferring the items below acceptable for now; **going public needs
+them revisited**, moderation first.
+
+Still deferred (NOT MVP): public hosting, upload guards +
 rate limiting + dedup, account recovery / email, Stage 1 precheck,
 moderation, re-gating drifted content, the recursive aggregate
-optimization. Local-only is fine for MVP — "runs on `scripts/dev.*`" is
-the bar, not "is deployed".
+optimization.
 
 ---
 
@@ -423,11 +434,17 @@ mockups it came from are kept as reference only.
   ever viable for the now-dropped SSR phase. (Careful cross-site cookie
   config — CORS, SameSite — is the fallback if token auth proves
   annoying, but token-first is the plan.)
+  The client sends the JWT as **`X-Horse-Token`**, not `Authorization:
+  Bearer` (still accepted, e.g. by tests): the deployment's site-wide
+  basic-auth password occupies `Authorization`. Deployed, the site and API
+  share one origin (`PUBLIC_API_BASE` empty, Caddy routes `/api/*`); in
+  local dev they're still cross-origin.
 
 Note: the web app is part of the Stage 2 MVP now (see "Current focus" —
-this was revised; the app was previously scoped as post-MVP). Local-only
-is the bar for MVP — deployment, hosting, and public-facing hardening
-(upload guards, rate limiting, auth hardening) stay deferred.
+this was revised; the app was previously scoped as post-MVP). It's now
+deployed as a password-protected private beta (see "Current focus");
+public-facing hardening (upload guards, rate limiting, auth hardening)
+stays deferred until it goes public.
 
 Alternatives considered:
 - **FastAPI**: rejected — async doesn't pay off (CLIP inference is

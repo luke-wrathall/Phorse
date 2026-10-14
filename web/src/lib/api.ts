@@ -1,10 +1,14 @@
 /**
  * Thin fetch wrapper around the Flask API.
  *
- * Auth is a JWT kept in localStorage (CLAUDE.md: token-based, cross-origin
- * SPA). Every call attaches `Authorization: Bearer <token>` when we have
- * one. Non-2xx responses become a thrown `ApiError` carrying the server's
- * `{error}` message, which svelte-query surfaces as `query.error`.
+ * Auth is a JWT kept in localStorage (CLAUDE.md: token-based). Every call
+ * attaches `X-Horse-Token: <token>` when we have one -- not `Authorization`,
+ * which a deployment's site-wide basic-auth password already occupies
+ * (deploy/Caddyfile). Non-2xx responses become a thrown `ApiError` carrying
+ * the server's `{error}` message, which svelte-query surfaces as `query.error`.
+ *
+ * PUBLIC_API_BASE is empty when the API is served from the same origin as
+ * the site (a deployment), so paths stay relative.
  */
 import { PUBLIC_API_BASE } from '$env/static/public';
 
@@ -34,7 +38,7 @@ type ApiOptions = Omit<RequestInit, 'body'> & { json?: unknown; body?: BodyInit 
 export async function api<T = unknown>(path: string, opts: ApiOptions = {}): Promise<T> {
 	const headers = new Headers(opts.headers);
 	const token = getToken();
-	if (token) headers.set('Authorization', `Bearer ${token}`);
+	if (token) headers.set('X-Horse-Token', token);
 
 	let body = opts.body;
 	if (opts.json !== undefined) {

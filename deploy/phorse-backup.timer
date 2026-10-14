@@ -1,0 +1,13 @@
+# Nightly phorse backup at ~04:00 server time. Persistent: if the server
+# was off at 04:00, it runs at next boot.
+
+[Unit]
+Description=phorse nightly backup
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,8 @@
+# Runs deploy/backup.sh. Triggered by phorse-backup.timer.
+
+[Unit]
+Description=phorse nightly backup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /srv/phorse/deploy/backup.sh

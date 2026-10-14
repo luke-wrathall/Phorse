@@ -99,6 +99,19 @@ def test_me_rejects_bad_tokens(app, client, case):
     assert client.get("/api/auth/me", headers=headers).status_code == 401
 
 
+def test_token_header_works_behind_site_basic_auth(client):
+    """Deployed behind a site-wide basic-auth password, the browser's
+    Authorization header carries the site password, so the JWT rides in
+    X-Horse-Token instead."""
+    token = register(client, "alice")
+    headers = {"Authorization": "Basic c2l0ZTpwYXNz", "X-Horse-Token": token}
+    resp = client.get("/api/auth/me", headers=headers)
+    assert resp.status_code == 200
+    assert resp.get_json()["user"]["username"] == "alice"
+    # The basic-auth header alone is not a login.
+    assert client.get("/api/auth/me", headers={"Authorization": "Basic c2l0ZTpwYXNz"}).status_code == 401
+
+
 # --- ratings ---------------------------------------------------------------
 
 

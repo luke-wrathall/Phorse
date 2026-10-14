@@ -67,6 +67,11 @@ scored by an untrained head and nothing passes the gate — the scheduler
 writes one on its first cycle (which also builds the anchor cache from
 CIFAR-10 + PACS on first run, a one-time ~350 MB download).
 
+## Deploy
+
+A private beta on one DigitalOcean droplet, behind a site-wide password:
+see `deploy/README.md`.
+
 ## Data
 
 Both live under gitignored dirs:

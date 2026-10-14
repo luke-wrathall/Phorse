@@ -1,0 +1,25 @@
+# phorse Flask API under gunicorn. Install to /etc/systemd/system/.
+#
+# ONE worker, on purpose: feed sessions live in the API's memory and each
+# worker would load its own copy of CLIP (~1 GB). Threads give concurrency
+# instead -- CLIP inference is CPU-bound either way.
+
+[Unit]
+Description=phorse API (gunicorn)
+After=network.target
+
+[Service]
+User=phorse
+Group=phorse
+WorkingDirectory=/srv/phorse
+EnvironmentFile=/etc/phorse/phorse.env
+ExecStart=/srv/phorse/.venv/bin/gunicorn server.wsgi:app \
+    --workers 1 --threads 4 \
+    --bind 127.0.0.1:8000 \
+    --timeout 120 \
+    --access-logfile -
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

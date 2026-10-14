@@ -1,0 +1,19 @@
+# phorse retrain loop (server.scheduler). Install to /etc/systemd/system/.
+# Shares the API's working directory and env, so both see the same app.db,
+# uploads and head.pt.
+
+[Unit]
+Description=phorse retrain scheduler
+After=network.target
+
+[Service]
+User=phorse
+Group=phorse
+WorkingDirectory=/srv/phorse
+EnvironmentFile=/etc/phorse/phorse.env
+ExecStart=/srv/phorse/.venv/bin/python -m server.scheduler
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

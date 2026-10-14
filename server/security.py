@@ -1,9 +1,11 @@
 """Password hashing + JWT bearer-token auth.
 
-Token-based from day one (CLAUDE.md "Web app architecture"): the SvelteKit
-SPA and this API are cross-origin, so there is no session cookie. Clients
-send `Authorization: Bearer <jwt>`; `@require_auth` decodes it and puts the
-user id on `flask.g.user_id`.
+Token-based from day one (CLAUDE.md "Web app architecture"): no session
+cookie. The web client sends `X-Horse-Token: <jwt>`; `Authorization: Bearer
+<jwt>` is accepted too. The separate header exists because a deployment can
+sit behind a site-wide HTTP basic-auth password (deploy/Caddyfile), which
+occupies `Authorization` -- a browser can only send one. `@require_auth`
+decodes the token and puts the user id on `flask.g.user_id`.
 """
 
 from __future__ import annotations
@@ -68,27 +70,41 @@ def decode_token(token: str) -> int:
         raise ApiError("invalid or expired token", 401)
 
 
-def optional_user_id() -> int | None:
-    """The caller's user id if a valid bearer token is present, else None.
-    For endpoints that work logged out but personalize when logged in."""
+TOKEN_HEADER = "X-Horse-Token"
+
+
+def _request_token() -> str | None:
+    """The caller's JWT from X-Horse-Token, else `Authorization: Bearer`."""
+    token = request.headers.get(TOKEN_HEADER, "").strip()
+    if token:
+        return token
     header = request.headers.get("Authorization", "")
-    if not header.startswith("Bearer "):
+    if header.startswith("Bearer "):
+        return header[len("Bearer ") :].strip()
+    return None
+
+
+def optional_user_id() -> int | None:
+    """The caller's user id if a valid token is present, else None.
+    For endpoints that work logged out but personalize when logged in."""
+    token = _request_token()
+    if not token:
         return None
     try:
-        return decode_token(header[len("Bearer ") :].strip())
+        return decode_token(token)
     except ApiError:
         return None
 
 
 def require_auth(view):
-    """Decorator: 401 unless a valid bearer token is present. Sets g.user_id."""
+    """Decorator: 401 unless a valid token is present. Sets g.user_id."""
 
     @wraps(view)
     def wrapper(*args, **kwargs):
-        header = request.headers.get("Authorization", "")
-        if not header.startswith("Bearer "):
+        token = _request_token()
+        if not token:
             raise ApiError("missing bearer token", 401)
-        g.user_id = decode_token(header[len("Bearer ") :].strip())
+        g.user_id = decode_token(token)
         return view(*args, **kwargs)
 
     return wrapper

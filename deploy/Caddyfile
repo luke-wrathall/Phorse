@@ -1,0 +1,33 @@
+# phorse -- Caddy config. Copy to /etc/caddy/Caddyfile, then fill in the
+# two REPLACE_ME lines (see deploy/README.md). Caddy gets the HTTPS
+# certificate for the domain by itself.
+#
+# One origin for everything: the static site at /, the Flask API at /api/*.
+# The whole site sits behind one shared password (HTTP basic auth). That's
+# why the web client sends its login token in X-Horse-Token, not
+# Authorization -- the browser uses Authorization for this password.
+
+REPLACE_ME.example.com {
+	encode zstd gzip
+
+	basic_auth {
+		# username, then the hash printed by `caddy hash-password`
+		REPLACE_ME_USER REPLACE_ME_HASH
+	}
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	handle {
+		root * /srv/phorse/web/build
+		# Single-page app: unknown paths get index.html and the client
+		# router picks the page.
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output file /var/log/caddy/phorse.log
+	}
+}

@@ -28,7 +28,7 @@
 	}
 </script>
 
-<p class="note">phorse is a website for pictures of horses.</p>
+<p class="note">phorse is a website for pictures of horses.<br />you've been invited.</p>
 
 <form
 	onsubmit={(e) => {

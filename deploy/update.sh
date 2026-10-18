@@ -2,7 +2,7 @@
 # Pull the latest code, install dependencies, rebuild the site, restart.
 # Run on the server as root:   sudo bash /srv/phorse/deploy/update.sh
 #
-# Also used for the first install (deploy/README.md step 6). Data under
+# Also used for the first install. Data under
 # server/data/ and horse/data/ is gitignored, so a pull never touches it.
 set -euo pipefail
 

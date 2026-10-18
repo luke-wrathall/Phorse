@@ -1,9 +1,10 @@
 """Feed endpoint.
 
-    GET /api/feed?limit=20&offset=0&session=<id>  -> {items: [...], next_offset: <int|null>}
+    GET /api/feed?feed=new&limit=20&offset=0&session=<id>  -> {items: [...], next_offset: <int|null>}
 
-The feed is ranked (strategy set by config FEED_STRATEGY, see
-services/feed.py), so pagination is by offset: pass back the previous
+`feed` is "new" (default: recent horses, ranked by config FEED_STRATEGY)
+or "ranked" (every horse, most horse first) -- see services/feed.py. Both
+are ranked, so pagination is by offset: pass back the previous
 response's `next_offset` for the next page (null means end of feed).
 `session` (optional, client-generated once per page load) keeps already
 loaded items fixed in place for that page load -- see services/feed.py.
@@ -33,8 +34,11 @@ def feed():
     session = request.args.get("session") or None
     if session and len(session) > feed_service.SESSION_ID_MAX_LEN:
         raise ApiError("session id too long")
+    kind = request.args.get("feed", "new")
+    if kind not in feed_service.FEEDS:
+        raise ApiError(f"feed must be one of {', '.join(feed_service.FEEDS)}")
     return jsonify(
         feed_service.get_feed(
-            limit=limit, offset=offset, user_id=optional_user_id(), session=session
+            limit=limit, offset=offset, user_id=optional_user_id(), session=session, kind=kind
         )
     )

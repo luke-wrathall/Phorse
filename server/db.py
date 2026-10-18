@@ -21,7 +21,10 @@ CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    created_at    REAL NOT NULL
+    created_at    REAL NOT NULL,
+    invite_code   TEXT,                   -- the code they signed up with
+    banned        INTEGER NOT NULL DEFAULT 0,
+    tokens_after  INTEGER                 -- tokens issued before this (unix s) are dead
 );
 
 CREATE TABLE IF NOT EXISTS images (
@@ -43,6 +46,15 @@ CREATE TABLE IF NOT EXISTS ratings (
     rating     REAL NOT NULL,             -- 0-5 "horse out of 5"
     created_at REAL NOT NULL,
     PRIMARY KEY (image_id, user_id)       -- one live rating per user per image
+);
+
+CREATE TABLE IF NOT EXISTS invites (
+    code       TEXT PRIMARY KEY,          -- lowercase, what people type in
+    max_uses   INTEGER,                   -- signups allowed; NULL = unlimited
+    uses       INTEGER NOT NULL DEFAULT 0,
+    note       TEXT,                      -- operator's reminder, e.g. "insta story"
+    revoked    INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
 );
 """
 
@@ -70,6 +82,9 @@ def close_db(_exc: BaseException | None = None) -> None:
 # (see nubbins.md), so we add them by hand, ignoring "duplicate column".
 _ADD_COLUMNS = [
     "ALTER TABLE images ADD COLUMN caption TEXT",
+    "ALTER TABLE users ADD COLUMN invite_code TEXT",
+    "ALTER TABLE users ADD COLUMN banned INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN tokens_after INTEGER",
 ]
 
 

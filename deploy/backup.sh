@@ -6,7 +6,7 @@
 #
 # Run by phorse-backup.timer. These copies sit on the same server, so they
 # guard against mistakes, not against losing the server -- pull copies
-# off it regularly (deploy/README.md "Day to day").
+# off it regularly.
 set -euo pipefail
 
 APP=/srv/phorse

@@ -57,20 +57,28 @@ class Config:
     RETRAIN_EPOCHS = int(os.environ.get("HORSE_RETRAIN_EPOCHS", "200"))
     RETRAIN_PROX_WEIGHT = float(os.environ.get("HORSE_RETRAIN_PROX_WEIGHT", "1.0"))
 
-    # Feed ranking strategy (services/feed.py):
-    #   blend      -- three-pool blend below, community-global
-    #   contested  -- most divisive horses, interleaved with ones you haven't rated
-    #   consensus  -- highest-rated horses, interleaved with ones you haven't rated
-    #   top        -- straight highest-rated, same for everyone
-    FEED_STRATEGY = os.environ.get("HORSE_FEED_STRATEGY", "blend")
-    # contested/consensus: fraction of feed slots given to horses the viewer
-    # hasn't rated yet (newest first).
-    FEED_UNSEEN_SHARE = float(os.environ.get("HORSE_FEED_UNSEEN_SHARE", "0.5"))
+    # Two feeds (services/feed.py): "new" (the front page) is the horses you
+    # haven't rated yet, ranked by FEED_STRATEGY; "ranked" (/ranked) is
+    # every horse, most horse first by the model's score.
+    # The new feed's ranking:
+    #   contested  -- most divisive horses, interleaved with the newest
+    #   consensus  -- most horse by the model's score, interleaved the same way
+    #   blend      -- the three-pool blend below
+    #   top        -- straight most horse
+    FEED_STRATEGY = os.environ.get("HORSE_FEED_STRATEGY", "contested")
+    # contested/consensus: fraction of feed slots given to the newest horses,
+    # so fresh uploads surface before anyone has rated them.
+    FEED_NEWEST_SHARE = float(os.environ.get("HORSE_FEED_NEWEST_SHARE", "0.5"))
 
     # Feed pool mix (blend strategy): consensus, contested, exploration. Must sum > 0.
     FEED_MIX = tuple(
         float(x) for x in os.environ.get("HORSE_FEED_MIX", "0.5,0.3,0.2").split(",")
     )
+
+    # Signing up needs an invite code (services/invites.py). On unless
+    # turned off, so a deploy can't open signups by forgetting to set it;
+    # scripts/dev.* turn it off for local dev.
+    REQUIRE_INVITE = _bool("HORSE_REQUIRE_INVITE", True)
 
     # JWT lifetime. Default 7 days.
     TOKEN_TTL_SECONDS = int(os.environ.get("HORSE_TOKEN_TTL", str(7 * 24 * 3600)))
@@ -79,5 +87,10 @@ class Config:
     CORS_ORIGINS = os.environ.get(
         "HORSE_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
     ).split(",")
+
+    # The site's public address, for links the CLI prints (invite links).
+    # Defaults to the first CORS origin: the domain when deployed, the
+    # SvelteKit dev server locally.
+    SITE_URL = (os.environ.get("HORSE_SITE_URL") or CORS_ORIGINS[0]).rstrip("/")
 
     TESTING = _bool("HORSE_TESTING", False)

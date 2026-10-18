@@ -26,8 +26,11 @@ The API (`python -m server.wsgi`) must be running too.
 | `src/lib/format.ts` | `timeAgo()` for bylines |
 | `src/lib/components/RateWidget.svelte` | "rate this horse" 1–5 buttons + average |
 | `src/routes/+layout.svelte` | `QueryClientProvider`, masthead + nav + footer, token check, the "website is a horse" footer flip |
-| `src/routes/+page.svelte` | feed — `createInfiniteQuery` + `IntersectionObserver`, `<article class="post">` per item |
-| `src/routes/login/+page.svelte` | two stacked forms (log in / make an account) |
+| `src/routes/+page.svelte` | front page: the "new" feed |
+| `src/routes/ranked/+page.svelte` | "most horse": every horse, most horse first |
+| `src/lib/components/Feed.svelte` | one infinite-scroll feed (`kind="new"\|"ranked"`) — `createInfiniteQuery` + `IntersectionObserver`, `<article class="post">` per item |
+| `src/routes/login/+page.svelte` | log in |
+| `src/routes/join/[code]/+page.svelte` | make an account -- only reached via an invite link `/join/<code>` |
 | `src/routes/upload/+page.svelte` | file pick → `POST /api/images` → "your horse is up" / "not horse enough" |
 | `prototypes/*.html` | standalone static mockups the routes were ported from — reference only, will drift |
 

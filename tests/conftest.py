@@ -86,6 +86,8 @@ def app(tmp_path):
             "LAMBDA_DECAY": 0.01,
             "COMMUNITY_WEIGHT_FLOOR": 3.0,
             "RETRAIN_INTERVAL_SECONDS": 0,
+            # Most tests just need accounts; test_invites.py turns this on.
+            "REQUIRE_INVITE": False,
         }
     )
     _reset_model_singletons()

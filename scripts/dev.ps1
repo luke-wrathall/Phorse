@@ -6,6 +6,9 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 Push-Location $root
 try {
+    # Local dev: no invite needed -- sign up at /join/<anything>.
+    if (-not $env:HORSE_REQUIRE_INVITE) { $env:HORSE_REQUIRE_INVITE = '0' }
+
     Write-Host 'starting API on http://127.0.0.1:8000 ...' -ForegroundColor Cyan
     $api = Start-Process python -ArgumentList '-m', 'server.wsgi' -PassThru -NoNewWindow
 

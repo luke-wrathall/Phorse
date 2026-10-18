@@ -38,26 +38,30 @@ python -m server.retrain            # or a single cycle, on demand
 |---|---|
 | `__init__.py` | `create_app()` factory — config, CORS, blueprints, error handlers |
 | `config.py` | env-driven config (`HORSE_*`) |
-| `db.py` | sqlite connection-per-request + schema (`users`, `images`, `ratings`) |
-| `security.py` | password hashing + JWT + `@require_auth` |
+| `db.py` | sqlite connection-per-request + schema (`users`, `images`, `ratings`, `invites`) |
+| `security.py` | password hashing + JWT + `@require_auth` (also refuses banned accounts and tokens older than a password reset) |
 | `errors.py` | `ApiError` → JSON |
 | `blueprints/` | HTTP layer only — parse request, call a service, jsonify |
 | `services/` | business logic; `services/model.py` holds the CLIP/head singletons; `services/retrain.py` is one retrain cycle |
 | `scheduler.py` | `python -m server.scheduler` — automatic retrain loop (separate process) |
 | `retrain.py` | `python -m server.retrain` — one retrain cycle on demand |
+| `invites.py` | `python -m server.invites` — create / list / revoke invite codes; prints `/join/<code>` signup links |
+| `admin.py` | `python -m server.admin` — moderation: `users`, `posts`, `delete-post`, `ban [--purge]`, `unban`, `set-password` (`services/moderation.py`) |
+
+On the server, run these through `sudo bash /srv/phorse/deploy/manage.sh invites|admin|retrain ...`, which loads the env and runs as the `phorse` user.
 
 ## Endpoints
 
 | method | path | auth | body → result |
 |---|---|---|---|
 | GET | `/api/health` | — | `{status}` |
-| POST | `/api/auth/register` | — | `{username,password}` → `{token,user}` |
+| POST | `/api/auth/register` | — | `{username,password,invite}` → `{token,user}` — `invite` required unless `HORSE_REQUIRE_INVITE=0` (codes: `python -m server.invites`) |
 | POST | `/api/auth/login` | — | `{username,password}` → `{token,user}` |
 | GET | `/api/auth/me` | Bearer | → `{user}` |
 | POST | `/api/images` | Bearer | multipart `image` (+ optional `caption`) → `{id,score,passed,threshold,head_loaded}` |
 | GET | `/api/images/mine` | Bearer | → `{items}` — the caller's uploads, passed or not |
 | GET | `/api/images/<id>/file` | — | → image bytes |
-| GET | `/api/feed` | optional | `?limit=&offset=` → `{items,next_offset}` — ranked by `HORSE_FEED_STRATEGY` (blend / contested / consensus / top, see `services/feed.py`); a token lets contested/consensus mix in horses you haven't rated |
+| GET | `/api/feed` | optional | `?feed=new\|ranked&limit=&offset=&session=` → `{items,next_offset}` — `new` (default): horses the caller hasn't rated (logged out: all), ranked by `HORSE_FEED_STRATEGY` (contested / consensus / blend / top, see `services/feed.py`); `ranked`: every horse, most horse first |
 | POST | `/api/images/<id>/ratings` | Bearer | `{rating:0..5}` → `{ok,rating_count,rating_mean}` |
 
 ## Databases

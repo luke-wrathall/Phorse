@@ -6,6 +6,9 @@ cd "$(dirname "$0")/.."
 
 trap 'kill 0' EXIT
 
+# Local dev: no invite needed -- sign up at /join/<anything>.
+export HORSE_REQUIRE_INVITE="${HORSE_REQUIRE_INVITE:-0}"
+
 echo "starting API on http://127.0.0.1:8000 ..."
 python -m server.wsgi &
 

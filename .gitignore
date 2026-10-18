@@ -15,4 +15,3 @@ possible issues.md
 tests/test_horse
 
 # web/ has its own .gitignore (node_modules, .svelte-kit, build, .env)
-deploy/README.md

@@ -3,9 +3,11 @@
 Token-based from day one (CLAUDE.md "Web app architecture"): no session
 cookie. The web client sends `X-Horse-Token: <jwt>`; `Authorization: Bearer
 <jwt>` is accepted too. The separate header exists because a deployment can
-sit behind a site-wide HTTP basic-auth password (deploy/Caddyfile), which
-occupies `Authorization` -- a browser can only send one. `@require_auth`
-decodes the token and puts the user id on `flask.g.user_id`.
+sit behind a site-wide HTTP basic-auth password, which occupies
+`Authorization` -- a browser can only send one. `@require_auth` decodes the
+token, checks the account is still allowed in (not banned, token not
+revoked by a password change -- see server.admin), and puts the user id on
+`flask.g.user_id`.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from flask import current_app, g, request
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .config import DEV_SECRET_KEY
+from .db import get_db
 from .errors import ApiError
 
 # HS256 keys shorter than the hash output (32 bytes) are brute-forceable.
@@ -60,14 +63,35 @@ def make_token(user_id: int) -> str:
     return jwt.encode(payload, current_app.config["SECRET_KEY"], algorithm="HS256")
 
 
-def decode_token(token: str) -> int:
+def _decode_payload(token: str) -> tuple[int, int]:
+    """(user id, issued-at) from a valid token, else 401."""
     try:
         payload = jwt.decode(
             token, current_app.config["SECRET_KEY"], algorithms=["HS256"]
         )
-        return int(payload["sub"])
-    except (jwt.PyJWTError, KeyError, ValueError):
+        return int(payload["sub"]), int(payload["iat"])
+    except (jwt.PyJWTError, KeyError, ValueError, TypeError):
         raise ApiError("invalid or expired token", 401)
+
+
+def decode_token(token: str) -> int:
+    return _decode_payload(token)[0]
+
+
+BANNED_MESSAGE = "this account has been banned"
+
+
+def check_account(user_id: int, issued_at: int) -> None:
+    """401/403 unless this user may still use a token issued at `issued_at`."""
+    row = get_db().execute(
+        "SELECT banned, tokens_after FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    if row is None:
+        raise ApiError("user no longer exists", 401)
+    if row["banned"]:
+        raise ApiError(BANNED_MESSAGE, 403)
+    if row["tokens_after"] is not None and issued_at < row["tokens_after"]:
+        raise ApiError("you've been logged out, please log in again", 401)
 
 
 TOKEN_HEADER = "X-Horse-Token"
@@ -104,7 +128,9 @@ def require_auth(view):
         token = _request_token()
         if not token:
             raise ApiError("missing bearer token", 401)
-        g.user_id = decode_token(token)
+        user_id, issued_at = _decode_payload(token)
+        check_account(user_id, issued_at)
+        g.user_id = user_id
         return view(*args, **kwargs)
 
     return wrapper

@@ -34,11 +34,12 @@ export async function refresh(): Promise<void> {
 export async function authenticate(
 	kind: 'login' | 'register',
 	username: string,
-	password: string
+	password: string,
+	invite?: string
 ): Promise<void> {
 	const { token, user } = await api<{ token: string; user: User }>(`/api/auth/${kind}`, {
 		method: 'POST',
-		json: { username, password }
+		json: kind === 'register' ? { username, password, invite } : { username, password }
 	});
 	setToken(token);
 	auth.user = user;

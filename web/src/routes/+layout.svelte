@@ -28,7 +28,8 @@
 		<p class="tagline">pictures of horses, decide how horsey they really are</p>
 		<nav>
 			<!-- /me, /about, /rules aren't built yet — they 404 for now -->
-			<a href="/">the feed</a>
+			<a href="/">new</a>
+			&nbsp;|&nbsp; <a href="/ranked">most horse</a>
 			{#if auth.ready && auth.user}
 				&nbsp;|&nbsp; <a href="/upload">post a horse</a>
 				&nbsp;|&nbsp; <a href="/me">your page</a>

@@ -1,17 +1,26 @@
-"""Feed ranking. Config FEED_STRATEGY picks one of:
+"""Feed ranking. There are two feeds (`kind`):
 
+- new     -- horses the viewer hasn't rated yet, ranked by config
+             FEED_STRATEGY (below). The site's front page.
+- ranked  -- every horse, the model's most horse to least horse ("top"),
+             same for everyone. The /ranked page.
+
+"Hasn't rated" uses the ratings table -- a horse scrolled past without
+rating stays unseen (no impressions tracking). Logged out, nothing counts
+as rated, so the new feed is every horse.
+
+Config FEED_STRATEGY picks the new feed's ranking, one of:
+
+- contested  -- most divisive horses first, interleaved with the newest.
+- consensus  -- highest-scored horses first, interleaved with the newest.
 - blend      -- the three-pool blend below (CLAUDE.md "Recommendation / feed
-                algorithm"), community-global.
-- contested  -- most divisive horses first, interleaved with horses the
-                viewer hasn't rated yet (newest first).
-- consensus  -- highest-scored horses first, interleaved the same way.
-- top        -- straight highest-scored, same for everyone.
+                algorithm").
+- top        -- straight highest-scored.
 
 "Highest scored" is the model's own horseness score (images.score,
-re-scored every retrain), not user ratings. "Unrated by the viewer" uses
-the ratings table -- an image scrolled past without rating stays
-"unseen". FEED_UNSEEN_SHARE sets the fraction of slots it gets. Logged
-out, nothing counts as rated.
+re-scored every retrain), not user ratings. FEED_NEWEST_SHARE sets the
+fraction of slots the newest horses get, so fresh uploads -- which have no
+ratings yet to be contested -- still surface.
 
 Feed sessions: the client sends a `session` id it generates once per page
 load, and the server remembers which images it has already served to that
@@ -62,19 +71,20 @@ MAX_LIMIT = 50
 SAT_K = 3.0
 
 STRATEGIES = ("blend", "contested", "consensus", "top")
+FEEDS = ("new", "ranked")
 
 # Images already served per feed session, keyed by (viewer user_id or None,
-# client session id), oldest session first. In-process memory: fine for the
+# feed kind, client session id), oldest session first. In-process memory: fine for the
 # single dev server; multiple workers would each keep their own (nubbins.md).
 SESSION_TTL_SECONDS = 3600
 SESSION_MAX = 1000
 SESSION_ID_MAX_LEN = 64
-_sessions: OrderedDict[tuple[int | None, str], tuple[float, list[str]]] = OrderedDict()
+_sessions: OrderedDict[tuple[int | None, str, str], tuple[float, list[str]]] = OrderedDict()
 _sessions_lock = threading.Lock()
 
 
 def _session_page(
-    key: tuple[int | None, str], offset: int, limit: int, compute_order
+    key: tuple[int | None, str, str], offset: int, limit: int, compute_order
 ) -> tuple[list[str], bool]:
     """(image ids for this page, whether more exist) within a feed session.
 
@@ -134,26 +144,26 @@ def _contested_score(var: float, weight: float) -> float:
     return (var / (1.0 + var)) * (weight / (weight + SAT_K))
 
 
-def _interleave(primary: list[dict], unseen: list[dict], share: float) -> list[dict]:
-    """Merge two ranked entry lists so ~`share` of slots come from `unseen`,
-    dropping duplicates (an unrated image can be in both)."""
+def _interleave(primary: list[dict], newest: list[dict], share: float) -> list[dict]:
+    """Merge two ranked entry lists so ~`share` of slots come from `newest`
+    (the newest-first list), dropping duplicates (an image is in both)."""
     out: list[dict] = []
     used: set[str] = set()
-    p = u = taken_unseen = 0
-    while p < len(primary) or u < len(unseen):
-        want_unseen = taken_unseen < share * (len(out) + 1)
-        if (want_unseen and u < len(unseen)) or p >= len(primary):
-            item, from_unseen = unseen[u], True
+    p = u = taken_newest = 0
+    while p < len(primary) or u < len(newest):
+        want_newest = taken_newest < share * (len(out) + 1)
+        if (want_newest and u < len(newest)) or p >= len(primary):
+            item, from_newest = newest[u], True
             u += 1
         else:
-            item, from_unseen = primary[p], False
+            item, from_newest = primary[p], False
             p += 1
         image_id = item["item"]["id"]
         if image_id in used:
             continue
         used.add(image_id)
         out.append(item)
-        taken_unseen += from_unseen
+        taken_newest += from_newest
     return out
 
 
@@ -162,17 +172,19 @@ def get_feed(
     offset: int = 0,
     user_id: int | None = None,
     session: str | None = None,
+    kind: str = "new",
 ) -> dict:
     limit = max(1, min(limit, MAX_LIMIT))
     offset = max(0, offset)
     cfg = current_app.config
     lambda_decay = cfg["LAMBDA_DECAY"]
     mix = cfg["FEED_MIX"]
-    strategy = cfg["FEED_STRATEGY"]
+    if kind not in FEEDS:
+        raise ValueError(f"feed must be one of {FEEDS}, got {kind!r}")
+    strategy = cfg["FEED_STRATEGY"] if kind == "new" else "top"
     if strategy not in STRATEGIES:
         raise ValueError(f"FEED_STRATEGY must be one of {STRATEGIES}, got {strategy!r}")
     now = time.time()
-
     db = get_db()
     images = db.execute(
         """
@@ -214,12 +226,21 @@ def get_feed(
             }
         )
 
+    # The new feed ranks only horses the viewer hasn't rated. Filtered here,
+    # not out of `entries`: a horse rated mid-scroll keeps its loaded slot
+    # (and live details) for the rest of the feed session.
+    candidates = (
+        [e for e in entries if e["item"]["id"] not in rated_by_viewer]
+        if kind == "new"
+        else entries
+    )
+
     def compute_order() -> list[str]:
-        ranked = _rank(entries, strategy, mix, cfg["FEED_UNSEEN_SHARE"], rated_by_viewer)
+        ranked = _rank(candidates, strategy, mix, cfg["FEED_NEWEST_SHARE"])
         return [e["item"]["id"] for e in ranked]
 
     if session:
-        page_ids, has_more = _session_page((user_id, session), offset, limit, compute_order)
+        page_ids, has_more = _session_page((user_id, kind, session), offset, limit, compute_order)
     else:
         order = compute_order()
         page_ids, has_more = order[offset : offset + limit], offset + limit < len(order)
@@ -232,8 +253,7 @@ def _rank(
     entries: list[dict],
     strategy: str,
     mix: tuple[float, float, float],
-    unseen_share: float,
-    rated_by_viewer: set[str],
+    newest_share: float,
 ) -> list[dict]:
     """Order per-image entries (mean/var/weight/created_at/item) by strategy.
     Ties break newest first."""
@@ -251,5 +271,5 @@ def _rank(
     primary = top_scored if strategy == "consensus" else by(
         lambda e: _contested_score(e["var"], e["weight"])
     )
-    unseen = [e for e in by(lambda e: 0.0) if e["item"]["id"] not in rated_by_viewer]
-    return _interleave(primary, unseen, unseen_share)
+    newest = by(lambda e: 0.0)
+    return _interleave(primary, newest, newest_share)

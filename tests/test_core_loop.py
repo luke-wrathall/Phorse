@@ -40,6 +40,7 @@ def _fresh_app(tmp_path, **config_overrides):
         "LAMBDA_DECAY": 0.01,
         "COMMUNITY_WEIGHT_FLOOR": 3.0,
         "RETRAIN_INTERVAL_SECONDS": 0,
+        "REQUIRE_INVITE": False,
     }
     config.update(config_overrides)
     application = create_app(config)

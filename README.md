@@ -69,8 +69,9 @@ CIFAR-10 + PACS on first run, a one-time ~350 MB download).
 
 ## Deploy
 
-A private beta on one Azure VM, behind a site-wide password -- the
-server config, services and scripts are in `deploy/`.
+A private beta on one VM, invite-only (signup needs a code from
+`python -m server.invites`) -- the server config, services and scripts
+are in `deploy/`.
 
 ## Data
 

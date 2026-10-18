@@ -37,14 +37,31 @@ against real score distributions (none exist yet) — which needs real users
 rating, so it now depends on getting the site in front of people.
 
 **Private beta deployment (2026-10-14)** — to get real users rating: one
-Azure VM (Azure for Students credit, ~2½-3 months of a 4 GB VM) behind a
-**site-wide shared password** (Caddy basic auth), invited users only.
-Everything is in `deploy/`; the step-by-step guide `deploy/README.md` is
-git-ignored (local only). One
+Hetzner VM, invited users only. Config, services and scripts are in
+`deploy/` (the local step-by-step guide was deleted once deployed). One
 gunicorn worker on purpose (in-memory feed sessions, one CLIP copy).
-Cambridge-only sign-on was considered and declined. The password is what
-makes deferring the items below acceptable for now; **going public needs
-them revisited**, moderation first.
+Cambridge-only sign-on was considered and declined.
+
+**Invite codes replaced the site-wide password (2026-10-18)** so the site
+can be shared with a few hundred people (e.g. a link in the operator's
+private Instagram story). Signup needs a code (`server/services/invites.py`,
+`HORSE_REQUIRE_INVITE`, on by default; `scripts/dev.*` turn it off). A code
+can be multi-use with a cap, is revocable, and each account records the
+code it used (`users.invite_code`). Managed from the CLI (`python -m
+server.invites create|list|revoke`), which prints a signup link
+`<SITE_URL>/join/<code>`. Sign-up lives only on that page
+(`web/src/routes/join/[code]`), taking the code from the URL, so invitees
+never type it; `/login` is log-in only.
+The feed and image files need no login, so anyone with the URL can look;
+only invitees can post or rate. Moderation is by hand from the CLI
+(`python -m server.admin`: delete a post, ban a user with optional
+`--purge` of their posts + votes, reset a password, which also logs them
+out). Deletes reach the training store too, since ingest never deletes.
+On the server both CLIs run via `deploy/manage.sh`. Hosted moderation
+APIs / CSAM hash matching were considered and put off as more than this
+audience needs.
+Invite-only signup is what makes deferring the items below acceptable for
+now; **going public needs them revisited**, moderation first.
 
 Still deferred (NOT MVP): public hosting, upload guards +
 rate limiting + dedup, account recovery / email, Stage 1 precheck,
@@ -238,7 +255,8 @@ cycle on demand.
 Knobs (all `server/config.py`, `HORSE_*` env): `LAMBDA_ANCHOR` (0.25),
 `LAMBDA_DECAY` (0.01), `COMMUNITY_WEIGHT_FLOOR` (3.0), `FEED_MIX`
 ("0.5,0.3,0.2"), `RETRAIN_INTERVAL_SECONDS` (600), `RETRAIN_EPOCHS` (200),
-`RETRAIN_PROX_WEIGHT` (1.0). None tuned against real data yet.
+`RETRAIN_PROX_WEIGHT` (1.0), `FEED_STRATEGY` ("contested"),
+`FEED_NEWEST_SHARE` (0.5). None tuned against real data yet.
 
 **`HORSE_FAKE_EMBEDDER=1`** swaps CLIP for a deterministic hash-based
 stand-in (`horse/embed.py::FakeEmbedder`, via `get_embedder()`) — no
@@ -269,11 +287,25 @@ drops out of the contested pool over time. Mix ratio is `config.FEED_MIX`
 (`HORSE_FEED_MIX`, default 0.5/0.3/0.2) — a tunable parameter, possibly
 community-votable later.
 
-**Alternative strategies (2026-10-11, being compared)** — `HORSE_FEED_STRATEGY`
-picks one for everyone (server config switch, not a UI choice):
-- `blend` (default) — the three-pool blend above.
+**Two feeds (2026-10-18)** — `GET /api/feed?feed=new|ranked`:
+- **new** (front page `/`): only horses the viewer hasn't rated yet
+  (logged out: every horse), ranked by `HORSE_FEED_STRATEGY` below
+  (default now `contested`). A horse rated mid-scroll keeps its loaded
+  slot for that page load; it's left out of later pages and reloads. A
+  7-day "posted recently" window was tried first and dropped the same
+  day in favour of unseen.
+- **ranked** (`/ranked`, "most horse"): every gate-passing horse, most horse
+  to least by model score (`top`), same for everyone, with a `#n` rank shown.
+  This shows the model's ordering, but no variance / pool fields, so the "don't
+  surface the mechanism" rule still holds.
+Feed sessions are per (viewer, feed, session id).
+
+**Strategies (2026-10-11, being compared)** — `HORSE_FEED_STRATEGY`
+picks the *new* feed's ranking for everyone (server config switch, not a
+UI choice):
+- `blend` — the three-pool blend above.
 - `contested` — most divisive first (`_contested_score`), interleaved with
-  horses the viewer hasn't rated (newest first).
+  the newest horses (so fresh, unrated uploads still surface).
 - `consensus` — highest model score first, interleaved the same way.
 - `top` — straight highest model score, identical for everyone.
 
@@ -281,9 +313,10 @@ picks one for everyone (server config switch, not a UI choice):
 retrain), deliberately not user ratings — ratings reach the ranking only
 through the drift head. "Unrated by the viewer" comes from the ratings table
 — a horse scrolled past without rating stays "unseen" (no impressions
-tracking). `HORSE_FEED_UNSEEN_SHARE` (0.5) is the fraction of slots it gets.
-The feed endpoint takes an optional bearer token for this; logged out,
-nothing counts as rated.
+tracking). `HORSE_FEED_NEWEST_SHARE` (0.5) is the fraction of slots the
+newest horses get in contested/consensus. The feed endpoint takes an
+optional bearer token for the unseen filter; logged out, nothing counts as
+rated.
 
 **Feed sessions (no on-screen glitching):** the feed page sends a `session`
 id generated once per page load. The server remembers which images it has
@@ -436,14 +469,15 @@ mockups it came from are kept as reference only.
   config — CORS, SameSite — is the fallback if token auth proves
   annoying, but token-first is the plan.)
   The client sends the JWT as **`X-Horse-Token`**, not `Authorization:
-  Bearer` (still accepted, e.g. by tests): the deployment's site-wide
-  basic-auth password occupies `Authorization`. Deployed, the site and API
+  Bearer` (still accepted, e.g. by tests): added while the deployment had
+  a site-wide basic-auth password occupying `Authorization` (since
+  replaced by invite codes), and kept. Deployed, the site and API
   share one origin (`PUBLIC_API_BASE` empty, Caddy routes `/api/*`); in
   local dev they're still cross-origin.
 
 Note: the web app is part of the Stage 2 MVP now (see "Current focus" —
 this was revised; the app was previously scoped as post-MVP). It's now
-deployed as a password-protected private beta (see "Current focus");
+deployed as an invite-only private beta (see "Current focus");
 public-facing hardening (upload guards, rate limiting, auth hardening)
 stays deferred until it goes public.
 

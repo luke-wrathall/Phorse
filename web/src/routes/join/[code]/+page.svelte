@@ -28,10 +28,7 @@
 	}
 </script>
 
-<p class="note">
-	phorse is a website for pictures of horses. anyone can post one; everyone decides whether it
-	counts. you've been invited, so pick a name and a password and you're in.
-</p>
+<p class="note">phorse is a website for pictures of horses.</p>
 
 <form
 	onsubmit={(e) => {

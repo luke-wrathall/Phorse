@@ -4,7 +4,6 @@
 	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { queryClient } from '$lib/query';
 	import { auth, refresh, logout } from '$lib/auth.svelte';
-	import favicon from '$lib/assets/favicon.svg';
 
 	let { children } = $props();
 
@@ -16,11 +15,6 @@
 		if (Math.random() < 0.15) whatis = 'website is a horse';
 	});
 </script>
-
-<svelte:head>
-	<link rel="icon" href={favicon} />
-	<title>phorse</title>
-</svelte:head>
 
 <QueryClientProvider client={queryClient}>
 	<header class="masthead">

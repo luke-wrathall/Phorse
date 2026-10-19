@@ -4,6 +4,18 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
+		<!-- Written here, not in a <svelte:head>: the app is client-rendered
+		     (ssr = false), so anything Svelte adds is missing from the raw HTML
+		     that link previews and crawlers read. -->
+		<title>phorse</title>
+		<meta name="description" content="pictures of horses, decide how horsey they really are" />
+		<meta property="og:title" content="phorse" />
+		<meta property="og:description" content="pictures of horses, decide how horsey they really are" />
+		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="phorse" />
+		<link rel="icon" href="/favicon.ico" sizes="48x48" />
+		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

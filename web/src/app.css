@@ -122,39 +122,56 @@ button {
 	font-weight: bold;
 }
 
-/* --- rating line --- */
+/* --- rating: six big 0-5 buttons ---
+   Old-web bevelled buttons (outset), pressed in (inset) for your vote.
+   44px tall: a fingertip. From web/prototypes/rating.html ("B"). */
 .rating {
-	margin: 0.15rem 0 0;
+	margin: 0.4rem 0 0;
 	font-size: 0.95rem;
 }
 .rating .label {
+	margin: 0 0 0.3rem;
 	color: var(--meta);
 }
-.rating .stars {
-	white-space: nowrap;
+.rating .big {
+	display: grid;
+	grid-template-columns: repeat(6, 1fr);
+	gap: 4px;
 }
-.rating .stars button {
-	display: inline-block;
-	min-width: 1.1rem;
-	margin: 0 1px;
-	padding: 0 0.15rem;
-	font-size: inherit;
-	text-align: center;
+.rating .big button {
+	min-height: 44px;
+	font-size: 1.05rem;
 	color: var(--link);
-	background: none;
-	border: 1px solid var(--rule);
+	background: #eeeeea;
+	border: 2px outset #d6d6d0;
 	cursor: pointer;
 }
-.rating .stars button:hover {
-	background: #fff2cc;
+.rating .big button:active {
+	border-style: inset;
 }
-.rating .stars button:disabled {
-	color: var(--meta);
-	background: none;
+.rating .big button[aria-pressed='true'] {
+	border-style: inset;
+	background: #fff2cc;
+	color: var(--ink);
+	font-weight: bold;
+}
+.rating .big button:disabled {
 	cursor: default;
 }
-.rating .average {
+.rating .ends {
+	display: flex;
+	justify-content: space-between;
+	margin: 0.15rem 0 0;
+	font-size: 0.85rem;
 	color: var(--meta);
+}
+.rating .average {
+	margin: 0.3rem 0 0;
+	font-size: 0.9rem;
+	color: var(--meta);
+}
+.rating .average b {
+	color: var(--ink);
 }
 
 /* --- feed states --- */

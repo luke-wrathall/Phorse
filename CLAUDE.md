@@ -295,7 +295,9 @@ community-votable later.
   7-day "posted recently" window was tried first and dropped the same
   day in favour of unseen.
 - **ranked** (`/ranked`, "most horse"): every gate-passing horse, most horse
-  to least by model score (`top`), same for everyone, with a `#n` rank shown.
+  to least by model score (`top`), same for everyone, with a `#n` rank shown
+  and nothing else — no rating buttons or vote averages (2026-10-19); you
+  rate from the feed. The front page's nav label is "feed".
   This shows the model's ordering, but no variance / pool fields, so the "don't
   surface the mechanism" rule still holds.
 Feed sessions are per (viewer, feed, session id).
@@ -433,7 +435,12 @@ three-pool blend. `scripts/dev.*` now starts three processes (API + web +
 scheduler). See "Retrain loop (built)".
 
 **Feed UI direction (decided):** the "Stream" layout — social-app-first,
-images lead, one column, rate in place. Look is deliberately plain
+images lead, one column, rate in place. Rating (2026-10-19) is six big
+bevelled 0–5 buttons, one tap, "not a horse" … "super horse", your own
+vote shown pressed in (feed items carry `my_rating`). Chosen over a
+no-default slider for one-tap mobile use; both mocked up in
+`web/prototypes/rating.html`. 0–5 matches the model's scale (not-horse
+anchors target 0, gate 2.5) — the old 1–5 buttons couldn't vote 0. Look is deliberately plain
 old-web / "HTML energy", NOT modern-minimalist; hand-written CSS, no CSS
 framework (Simple.css was tried and dropped). The UI must **not** surface
 the drift mechanism — no "contested/consensus" labels, variance, or

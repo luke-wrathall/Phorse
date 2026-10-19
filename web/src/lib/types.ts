@@ -6,6 +6,8 @@ export type FeedItem = {
 	created_at: number;
 	rating_count: number;
 	rating_mean: number | null;
+	/** The viewer's own rating of this post; null if they haven't, or logged out. */
+	my_rating: number | null;
 	image_url: string;
 };
 

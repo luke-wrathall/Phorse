@@ -1,0 +1,343 @@
+<title>Rating Mockups</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<style>
+  /* ==========================================================================
+     phorse — two rating controls to compare (prototype)
+
+     B: six big buttons, 0-5, one tap to vote.
+     D: a slider with no starting value: the handle only appears once you
+        touch the track, then a "rate" button sends it.
+
+     Both are scored 0-5, so "not a horse" (0) is finally votable. Both mark
+     the vote you gave. Tap around: nothing is sent anywhere, the "from N
+     people" numbers are made up and update locally.
+
+     Open on a phone (or the browser's phone view) -- that's the point.
+     ========================================================================== */
+
+  :root {
+    --page-width: 40rem;
+    --ink: #1a1a1a;
+    --meta: #555;
+    --link: #1a0dab;
+    --link-visited: #6b1a8b;
+    --rule: #bcbcbc;
+    --name: #7a1f1f;
+    --paper: #fbfbf7;
+    --pick: #fff2cc;         /* your vote */
+  }
+  * { box-sizing: border-box; }
+
+  /* --- page --- */
+  html { background: var(--paper); }
+  body {
+    max-width: var(--page-width);
+    margin: 0 auto;
+    padding: 1rem 1.25rem 4rem;
+    background: var(--paper);
+    color: var(--ink);
+    font: 17px/1.65 Georgia, "Times New Roman", Times, serif;
+  }
+  a { color: var(--link); }
+  hr { border: none; border-top: 1px solid var(--rule); margin: 1.25rem 0; }
+  h2 { font-size: 1.3rem; margin: 1.2rem 0 0.3rem; }
+  .note { color: var(--meta); font-size: 0.95rem; margin: 0.3rem 0; }
+
+  /* --- masthead --- */
+  .masthead h1 { margin: 0 0 0.1rem; font-size: 1.7rem; color: var(--name); }
+  .masthead .tagline { margin: 0; color: var(--meta); font-size: 0.95rem; }
+
+  /* --- a post --- */
+  .post { margin: 1.5rem 0 2rem; }
+  .photo { display: block; width: 100%; height: auto; border: 1px solid var(--rule); }
+  .caption { margin: 0.5rem 0 0; }
+  .byline {
+    margin: 0.3rem 0 0.4rem;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 0.9rem;
+    color: var(--meta);
+  }
+  .byline b { color: var(--ink); }
+
+  /* --- shared rating bits --- */
+  .rating { margin: 0; font-size: 0.95rem; }
+  .rating .label { margin: 0 0 0.3rem; color: var(--meta); }
+  .ends {
+    display: flex;
+    justify-content: space-between;
+    margin: 0.15rem 0 0;
+    font-size: 0.85rem;
+    color: var(--meta);
+  }
+  .average { margin: 0.3rem 0 0; color: var(--meta); font-size: 0.9rem; }
+  .average b { color: var(--ink); }
+
+  /* --- B: six big buttons ---
+     Old-web bevelled buttons (outset), pressed-in (inset) for your vote.
+     44px tall: a fingertip. */
+  .big {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+  }
+  .big button {
+    min-height: 44px;
+    font: inherit;
+    font-size: 1.05rem;
+    color: var(--link);
+    background: #eeeeea;
+    border: 2px outset #d6d6d0;
+    cursor: pointer;
+  }
+  .big button:active { border-style: inset; }
+  .big button[aria-pressed="true"] {
+    border-style: inset;
+    background: var(--pick);
+    color: var(--ink);
+    font-weight: bold;
+  }
+
+  /* --- D: slider with no starting value ---
+     A native range input, made tall so it's easy to hit. Until it's been
+     touched it sits at 0 with its handle hidden (the only custom styling):
+     an empty track, no default value to lazily accept. The first touch
+     shows the handle wherever you put it. */
+  .slide { display: flex; align-items: center; gap: 0.6rem; }
+  .slide input[type="range"] {
+    flex: 1;
+    height: 44px;
+    margin: 0;
+    accent-color: var(--name);
+    cursor: pointer;
+  }
+  .slide input.unset::-webkit-slider-thumb { opacity: 0; }
+  .slide input.unset::-moz-range-thumb { opacity: 0; }
+  .slide output {
+    min-width: 5.5rem;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 0.9rem;
+    text-align: right;
+  }
+  .ticks {
+    display: flex;
+    justify-content: space-between;
+    margin: -0.4rem 6.1rem 0 0.35rem;  /* line up under the track */
+    font-family: "Courier New", Courier, monospace;
+    font-size: 0.8rem;
+    color: var(--meta);
+  }
+  .send {
+    margin-top: 0.4rem;
+    min-height: 44px;
+    padding: 0 1.4rem;
+    font: inherit;
+    background: #eeeeea;
+    border: 2px outset #d6d6d0;
+    cursor: pointer;
+  }
+  .send:active { border-style: inset; }
+  .send:disabled { color: var(--meta); cursor: default; }
+</style>
+
+<header class="masthead">
+  <h1>phorse</h1>
+  <p class="tagline">pictures of horses, decide how horsey they really are</p>
+</header>
+<hr />
+
+<main>
+  <h2>B &mdash; big buttons</h2>
+  <p class="note">one tap votes. tap a different number to change your mind.</p>
+
+  <article class="post" data-mean="3.4" data-count="6">
+    <svg class="photo" viewBox="0 0 220 140" role="img" aria-label="a wooden rocking horse"><use href="#pic-rocking" /></svg>
+    <p class="caption">found this in my nan's loft</p>
+    <p class="byline"><b>devon</b> &nbsp;&middot;&nbsp; 5 hours ago</p>
+    <div class="rating">
+      <p class="label">how horse is this?</p>
+      <div class="big">
+        <button type="button">0</button><button type="button">1</button><button type="button">2</button
+        ><button type="button">3</button><button type="button">4</button><button type="button">5</button>
+      </div>
+      <p class="ends"><span>&larr; not a horse</span><span>super horse &rarr;</span></p>
+      <p class="average"></p>
+    </div>
+  </article>
+
+  <article class="post" data-mean="1.2" data-count="9" data-mine="0">
+    <svg class="photo" viewBox="0 0 220 140" role="img" aria-label="a cow standing in a barnyard"><use href="#pic-cow" /></svg>
+    <p class="byline"><b>pia</b> &nbsp;&middot;&nbsp; 9 hours ago</p>
+    <div class="rating">
+      <p class="label">how horse is this?</p>
+      <div class="big">
+        <button type="button">0</button><button type="button">1</button><button type="button">2</button
+        ><button type="button">3</button><button type="button">4</button><button type="button">5</button>
+      </div>
+      <p class="ends"><span>&larr; not a horse</span><span>super horse &rarr;</span></p>
+      <p class="average"></p>
+    </div>
+  </article>
+
+  <hr />
+
+  <h2>D &mdash; slider, no starting value</h2>
+  <p class="note">tap or drag the line to pick a number (in halves), then press rate.</p>
+
+  <article class="post" data-mean="3.9" data-count="4">
+    <svg class="photo" viewBox="0 0 220 140" role="img" aria-label="a cloud shaped a little like a horse"><use href="#pic-cloud" /></svg>
+    <p class="caption">look up</p>
+    <p class="byline"><b>ori</b> &nbsp;&middot;&nbsp; 14 hours ago</p>
+    <div class="rating">
+      <p class="label">how horse is this?</p>
+      <div class="slide">
+        <input type="range" class="unset" min="0" max="5" step="0.5" value="0" aria-label="how horse is this, 0 to 5" />
+        <output>&mdash;</output>
+      </div>
+      <p class="ticks"><span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></p>
+      <p class="ends"><span>&larr; not a horse</span><span>super horse &rarr;</span></p>
+      <button type="button" class="send" disabled>rate</button>
+      <p class="average"></p>
+    </div>
+  </article>
+
+  <article class="post" data-mean="4.6" data-count="11" data-mine="4.5">
+    <svg class="photo" viewBox="0 0 220 140" role="img" aria-label="a horse in a field"><use href="#pic-horse" /></svg>
+    <p class="byline"><b>marisol</b> &nbsp;&middot;&nbsp; 2 hours ago</p>
+    <div class="rating">
+      <p class="label">how horse is this?</p>
+      <div class="slide">
+        <input type="range" class="unset" min="0" max="5" step="0.5" value="0" aria-label="how horse is this, 0 to 5" />
+        <output>&mdash;</output>
+      </div>
+      <p class="ticks"><span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></p>
+      <p class="ends"><span>&larr; not a horse</span><span>super horse &rarr;</span></p>
+      <button type="button" class="send" disabled>rate</button>
+      <p class="average"></p>
+    </div>
+  </article>
+</main>
+
+<script>
+  /* Fake voting: keeps a running mean per post so the line under each
+     control behaves like the real thing. Nothing leaves the page. */
+  function fmt(n) { return Number.isInteger(n) ? String(n) : n.toFixed(1); }
+  function horse(n) { return fmt(n) + " horse"; }
+
+  document.querySelectorAll(".post").forEach((post) => {
+    let sum = parseFloat(post.dataset.mean) * parseInt(post.dataset.count);
+    let count = parseInt(post.dataset.count);
+    let mine = post.dataset.mine === undefined ? null : parseFloat(post.dataset.mine);
+    if (mine !== null) { sum += mine; count += 1; }
+    const avg = post.querySelector(".average");
+
+    function show() {
+      const people = count === 1 ? "person" : "people";
+      const you = mine === null ? "" : "you said <b>" + fmt(mine) + "</b> &nbsp;&middot;&nbsp; ";
+      avg.innerHTML = you + (sum / count).toFixed(1) + " out of 5, from " + count + " " + people;
+    }
+    function vote(n) {
+      if (mine === null) { count += 1; } else { sum -= mine; }
+      mine = n;
+      sum += n;
+      show();
+    }
+
+    // B
+    const buttons = post.querySelectorAll(".big button");
+    function mark() {
+      buttons.forEach((b) => b.setAttribute("aria-pressed", String(mine !== null && Number(b.textContent) === mine)));
+    }
+    buttons.forEach((b) => b.addEventListener("click", () => { vote(Number(b.textContent)); mark(); }));
+    if (buttons.length) mark();
+
+    // D
+    const range = post.querySelector('input[type="range"]');
+    if (range) {
+      const out = post.querySelector("output");
+      const send = post.querySelector(".send");
+      if (mine !== null) {
+        range.value = mine;
+        range.classList.remove("unset");
+        out.textContent = horse(mine);
+        send.textContent = "rated";
+      }
+      // "input" alone misses a first tap at 0 (the value doesn't change),
+      // so any touch or key counts as picking.
+      ["input", "pointerup", "keyup"].forEach((ev) => range.addEventListener(ev, () => {
+        range.classList.remove("unset");
+        const v = parseFloat(range.value);
+        out.textContent = horse(v);
+        send.disabled = v === mine;
+        send.textContent = mine === null ? "rate" : (v === mine ? "rated" : "change vote");
+      }));
+      send.addEventListener("click", () => {
+        vote(parseFloat(range.value));
+        send.disabled = true;
+        send.textContent = "rated";
+      });
+    }
+
+    show();
+  });
+</script>
+
+<!-- Placeholder pictures, copied from feed.html. -->
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <symbol id="pic-horse" viewBox="0 0 220 140">
+    <rect width="220" height="140" fill="#e7dcc9" />
+    <g fill="#5b3f27">
+      <ellipse cx="112" cy="72" rx="46" ry="23" />
+      <path d="M150 62 q20 -6 24 -27 l10 2 q-2 27 -22 39 z" />
+      <path d="M176 30 l21 -8 4 12 -13 10 z" />
+      <path d="M182 22 l5 -12 5 10 z" />
+      <rect x="80" y="90" width="7" height="34" />
+      <rect x="99" y="90" width="7" height="34" />
+      <rect x="128" y="90" width="7" height="34" />
+      <rect x="147" y="90" width="7" height="34" />
+      <path d="M66 58 q-19 6 -21 35 l9 2 q5 -23 18 -29 z" />
+    </g>
+  </symbol>
+
+  <symbol id="pic-rocking" viewBox="0 0 220 140">
+    <rect width="220" height="140" fill="#e6e1d3" />
+    <g fill="#6b4a2c">
+      <ellipse cx="110" cy="60" rx="40" ry="17" />
+      <path d="M142 52 q16 -4 20 -22 l9 2 q-2 23 -18 33 z" />
+      <path d="M168 26 l18 -6 3 11 -12 9 z" />
+      <rect x="86" y="74" width="6" height="24" />
+      <rect x="128" y="74" width="6" height="24" />
+      <path d="M56 104 q54 26 108 0 q7 10 -4 15 q-50 20 -100 0 q-11 -5 -4 -15 z" />
+      <rect x="84" y="92" width="52" height="6" />
+    </g>
+  </symbol>
+
+  <symbol id="pic-cow" viewBox="0 0 220 140">
+    <rect width="220" height="140" fill="#e1dfd9" />
+    <g fill="#2f2b26">
+      <ellipse cx="106" cy="74" rx="48" ry="25" />
+      <path d="M148 66 q14 0 20 -12 l10 4 q-4 22 -24 26 z" />
+      <path d="M170 48 q20 -5 26 7 q-4 15 -24 13 z" />
+      <path d="M168 44 l-5 -11 11 6 z" />
+      <path d="M196 50 l9 -9 2 13 z" />
+      <rect x="74" y="94" width="8" height="34" />
+      <rect x="95" y="94" width="8" height="34" />
+      <rect x="126" y="94" width="8" height="34" />
+      <rect x="147" y="94" width="8" height="34" />
+      <path d="M58 64 q-11 4 -11 25 l6 0 q2 -17 11 -21 z" />
+      <circle cx="94" cy="68" r="7" opacity=".45" />
+      <circle cx="120" cy="80" r="10" opacity=".45" />
+    </g>
+  </symbol>
+
+  <symbol id="pic-cloud" viewBox="0 0 220 140">
+    <rect width="220" height="140" fill="#dde3e6" />
+    <g fill="#818b90">
+      <ellipse cx="88" cy="82" rx="34" ry="19" />
+      <ellipse cx="118" cy="74" rx="27" ry="20" />
+      <ellipse cx="150" cy="84" rx="22" ry="15" />
+      <ellipse cx="62" cy="86" rx="18" ry="12" />
+      <path d="M150 68 q14 -21 31 -23 q6 9 -2 19 q-13 8 -21 15 z" opacity=".85" />
+    </g>
+  </symbol>
+</svg>

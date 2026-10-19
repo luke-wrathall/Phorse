@@ -196,11 +196,11 @@ def get_feed(
     ).fetchall()
 
     ratings_by_image: dict[str, list[tuple[float, float]]] = {}
-    rated_by_viewer: set[str] = set()
+    viewer_ratings: dict[str, float] = {}  # image id -> the viewer's own rating
     for row in db.execute("SELECT image_id, user_id, rating, created_at FROM ratings").fetchall():
         ratings_by_image.setdefault(row["image_id"], []).append((row["rating"], row["created_at"]))
         if user_id is not None and row["user_id"] == user_id:
-            rated_by_viewer.add(row["image_id"])
+            viewer_ratings[row["image_id"]] = row["rating"]
 
     entries = []
     for img in images:
@@ -221,6 +221,8 @@ def get_feed(
                     "created_at": img["created_at"],
                     "rating_count": count,
                     "rating_mean": mean if count else None,
+                    # So the rating buttons can show your vote. Null logged out.
+                    "my_rating": viewer_ratings.get(img["id"]),
                     "image_url": f"/api/images/{img['id']}/file",
                 },
             }
@@ -230,7 +232,7 @@ def get_feed(
     # not out of `entries`: a horse rated mid-scroll keeps its loaded slot
     # (and live details) for the rest of the feed session.
     candidates = (
-        [e for e in entries if e["item"]["id"] not in rated_by_viewer]
+        [e for e in entries if e["item"]["id"] not in viewer_ratings]
         if kind == "new"
         else entries
     )

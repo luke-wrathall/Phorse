@@ -318,7 +318,8 @@ def test_unknown_file_404s_as_json(client):
 # Everything an item may carry. Adding a field should be a deliberate choice:
 # the UI must not surface the drift mechanism (no variance / pool / weight).
 FEED_ITEM_KEYS = {
-    "id", "owner", "score", "caption", "created_at", "rating_count", "rating_mean", "image_url",
+    "id", "owner", "score", "caption", "created_at", "rating_count", "rating_mean", "my_rating",
+    "image_url",
 }
 
 
@@ -335,6 +336,20 @@ def test_feed_items_expose_no_drift_fields(app, client, three_horses, strategy):
     _rate(client, voter, three_horses[0], {"rating": 1})
     items = client.get("/api/feed", headers=auth(voter)).get_json()["items"]
     assert items and all(set(i) == FEED_ITEM_KEYS for i in items)
+
+
+def test_feed_items_carry_the_viewers_own_rating(client, three_horses):
+    voter = register(client, "voter")
+    _rate(client, voter, three_horses[0], {"rating": 0})
+    mine = {
+        i["id"]: i["my_rating"]
+        for i in client.get("/api/feed?feed=ranked", headers=auth(voter)).get_json()["items"]
+    }
+    assert mine == {three_horses[0]: 0.0, three_horses[1]: None, three_horses[2]: None}
+    other = register(client, "other")
+    for token in (other, None):
+        items = client.get("/api/feed?feed=ranked", headers=auth(token) if token else {})
+        assert all(i["my_rating"] is None for i in items.get_json()["items"])
 
 
 def test_feed_pages_cover_catalogue_exactly_once(client, three_horses):

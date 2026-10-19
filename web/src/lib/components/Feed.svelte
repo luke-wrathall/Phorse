@@ -1,6 +1,7 @@
 <script lang="ts">
-	// One infinite-scroll feed. `kind` picks which: 'new' (recent horses, the
-	// front page) or 'ranked' (every horse, most horse first, /ranked).
+	// One infinite-scroll feed. `kind` picks which: 'new' (horses you haven't
+	// rated, the front page) or 'ranked' (every horse, most horse first,
+	// /ranked -- a list to look at: no rating buttons or vote averages).
 	import type { Snippet } from 'svelte';
 	import { createInfiniteQuery } from '@tanstack/svelte-query';
 	import { api, apiBase } from '$lib/api';
@@ -59,7 +60,14 @@
 				{#if kind === 'ranked'}<b>#{i + 1}</b> &nbsp;&middot;&nbsp;{/if}
 				<b>{item.owner}</b> &nbsp;&middot;&nbsp; {timeAgo(item.created_at)}
 			</p>
-			<RateWidget imageId={item.id} mean={item.rating_mean} count={item.rating_count} />
+			{#if kind === 'new'}
+				<RateWidget
+					imageId={item.id}
+					mean={item.rating_mean}
+					count={item.rating_count}
+					mine={item.my_rating}
+				/>
+			{/if}
 		</article>
 	{/each}
 

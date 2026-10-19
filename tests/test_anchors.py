@@ -1,6 +1,7 @@
 """Anchor set plumbing (horse/anchors.py): the operator-curated folder, the
-embedding cache, and the guard against an empty anchor set. The real
-datasets (CIFAR-10, PACS) are not exercised here -- see horse.check_anchors
+embedding cache, the QuickDraw sampling (from a fake cached slice), and
+the guard against an empty anchor set. The real datasets (CIFAR-10, PACS,
+QuickDraw downloads) are not exercised here -- see horse.check_anchors
 for validating those against real CLIP."""
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from horse.anchors import (
     AnchorSet,
     AnchorSource,
     CuratedFolderAnchorSource,
+    QuickDrawAnchorSource,
     build_anchor_set,
     load_or_build_anchor_set,
 )
@@ -90,3 +92,39 @@ def test_anchor_set_round_trips(tmp_path):
     assert loaded.ids == ["a", "b"]
     np.testing.assert_array_equal(loaded.embeddings, original.embeddings)
     np.testing.assert_array_equal(loaded.targets, original.targets)
+
+
+def _fake_quickdraw(root, categories, per_category: int = 6) -> None:
+    import json
+
+    root.mkdir(parents=True, exist_ok=True)
+    for c, category in enumerate(categories):
+        lines = []
+        for i in range(per_category):
+            drawing = [[[10, 200, 120], [30, 40, 220]], [[50], [60]]]  # incl. a one-point stroke
+            lines.append(json.dumps({"word": category, "recognized": i != 0,
+                                     "key_id": str(1000 * c + i), "drawing": drawing}))
+        (root / f"{category}.ndjson").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_quickdraw_splits_anchors_from_held_out_without_downloading(tmp_path):
+    source = QuickDrawAnchorSource(root=tmp_path, n_horse=3, n_negative=4)
+    source.NEGATIVES = ("cow", "dog", "car")
+    _fake_quickdraw(tmp_path, ["horse", *source.NEGATIVES])
+
+    anchors = list(source)
+    held = list(source.held_out())
+    ids = [a[0] for a in anchors]
+
+    assert [a[2] for a in anchors].count(HORSE_TARGET) == 3
+    # 4 negatives over 3 categories: 2 + 1 + 1, the remainder to the first
+    assert [i.split("-")[1] for i in ids if not i.startswith("quickdraw-horse")] == ["cow", "cow", "dog", "car"]
+    assert not set(ids) & {h[0] for h in held}
+    assert len(anchors) + len(held) == 4 * 5, "unrecognized drawings are skipped"
+    assert all(h[3] == "doodle" for h in held)
+    assert len(list(source.held_out(per_category=1))) == 4
+    image = anchors[0][1]
+    assert image.size == (256, 256) and image.getextrema() == ((0, 255),) * 3, "black lines on white"
+    again = QuickDrawAnchorSource(root=tmp_path, n_horse=3, n_negative=4)
+    again.NEGATIVES = source.NEGATIVES
+    assert [a[0] for a in again] == ids, "seeded: same split every build"

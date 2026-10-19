@@ -116,8 +116,21 @@ real score distributions exist.
 - CLIP image encoder (frozen) as feature extractor — turns any image into
   a fixed-length embedding (e.g. 512-d).
 - Small trainable head on top of the embedding (a couple linear layers,
-  e.g. `512 → 64 → 1`) outputs a continuous **horseness score** — trained
+  `512 → 8 → 1`) outputs a continuous **horseness score** — trained
   via regression (MSE), not binary classification.
+- **Head size: 8 hidden units (`HORSE_HEAD_HIDDEN`, 2026-10-19; was 64).**
+  Chosen for interesting drift at low traffic — the site may never get much.
+  A 64- or 32-hidden head memorizes each rated image, so votes never reach
+  images nobody rated (or future uploads, which is what the gate judges).
+  On the real votes (`horse.tune`, 74 votes / 19 images, 5-fold held-out
+  over images, out to 72 cycles): 64 and 32 never beat their starting
+  head on held-out images; 16 closed ~25% of the gap within 3 cycles but
+  re-memorized by 72; **8 closed ~20% and kept it**; linear (`0`) got
+  worse and let the doodle-horse anchors slip to ~82%. Anchors at 8 are
+  as good as at 64 when both are fully trained (held-out doodle horses
+  92%, non-horse sketches 35% vs 30%). Changing the size makes the next
+  cycle train a fresh head (`RETRAIN_FRESH_EPOCHS`, 3000 — small heads
+  need it; 200 from scratch left a linear head at 50% anchor accuracy).
 - Compute embedding once per image, cache/reuse it — don't re-run CLIP
   per head or per retrain.
 - Ratings are framed as regression targets ("horse out of 5" style, or a
@@ -146,17 +159,27 @@ That's load-bearing, not incidental: see `community_weight_floor` below.
   control the anchor set.
 - **Anchor set contents (2026-10-11)**: `horse/anchors.py::DEFAULT_SOURCES`
   = CIFAR-10 (32px photos) + **PACS** (photo / art painting / cartoon /
-  sketch, 100 horse + 100 style-matched non-horse per style) + a curated
-  folder (`horse/data/anchors_curated/{horse,not_horse,<number>}/`).
+  sketch, 100 horse + 100 style-matched non-horse per style) +
+  **QuickDraw** doodles (2026-10-19: 200 horse + 200 non-horse spread over
+  22 categories, mostly other four-legged animals plus car/house/tree/
+  bicycle/bird; zebra and donkey deliberately left to the community) + a
+  curated folder (`horse/data/anchors_curated/{horse,not_horse,<number>}/`).
+  QuickDraw was added after real MS-Paint doodle horses on the site scored
+  1.4-2.3 and were turned away: held-out doodle horses passing went 28% ->
+  85%, at the cost of non-horse doodles 0 -> 12% and non-horse sketches 8 ->
+  20%. Accepted, because the gate is asymmetric: a false positive reaches
+  the feed and can be voted down, a false negative is never seen again.
+  (400 negatives was tried: 70% / 8%, too many real doodles lost.)
   **Drawn horses are a first-class goal**: most users have no horse to
   photograph, so hand/computer-drawn horses must be able to pass the gate.
   Rule: every style added as positives needs **matched negatives in the
   same style**, or the head learns "drawing = horse". Check any anchor
   change with `python -m horse.check_anchors --anchor-cache old.npz
   --anchor-cache new.npz` (held-out PACS pass rates per style + scores for
-  `tests/test_horse/` and stored uploads) before swapping it in; then
-  reset `head.pt` to an anchors-only head, since the prox pull would
-  otherwise absorb new anchors only slowly.
+  `tests/test_horse/` and stored uploads) before swapping it in; then run
+  `python -m server.retrain --fresh` (trains from scratch on the new
+  anchors + every vote, instead of warm-starting), since the prox pull
+  would otherwise absorb new anchors only slowly.
 - **Community loss**: each rating weighted by recency,
   `w(t) = exp(-λ_decay * Δt)`. `λ_decay` is the main "how fast does
   culture move" knob.
@@ -215,9 +238,9 @@ That's load-bearing, not incidental: see `community_weight_floor` below.
   is per *cycle* and scales with `RETRAIN_INTERVAL_SECONDS`. Rejected
   alternative: pull toward a *fixed* anchors-only reference head (a true
   per-image cap, but it never loosens as the platform grows — a second,
-  stiffer anchor that would bound how far culture can ever move). Head
-  size kept as-is; memorization is expected to matter less once there are
-  many images with overlapping ratings.
+  stiffer anchor that would bound how far culture can ever move). The
+  head was later shrunk to 8 hidden units for the same reason (see "Model
+  design"); prox stays as the speed limit.
 - Alternatives considered but not chosen for the core mechanism: linear
   decay (hard cutoff, easier to explain to users), power-law decay (old
   ratings asymptotically linger, "cultural memory" feel), step-function
@@ -257,11 +280,23 @@ atomically (temp file + replace) so a killed save can't corrupt the
 warm-start checkpoint (2026-10-19). One machine only; several would need
 a job queue.
 
+**Tuning against real data: `python -m horse.tune`** (2026-10-19) — read-only
+report on a *copy* of the server's app.db (+ head.pt): vote stats, the
+model's score vs people's mean per rated image, the uploads the gate turned
+away, and a knob sweep that replays the loop from an anchors-only head
+(fit, held-out-image fit, anchor health, unrated-image shift). Snapshots
+live in git-ignored `tune/`. First real run (74 votes, 19 images, 6
+people): the live head fits every rated image to within 0.08, and held-out
+fit never beats the starting head at any `λ_anchor`/`prox` — votes are
+memorized, not generalized. Led to the 8-hidden head (see "Model design");
+`λ_anchor`/`prox` haven't been re-swept at that size yet.
+
 Knobs (all `server/config.py`, `HORSE_*` env): `LAMBDA_ANCHOR` (0.25),
 `LAMBDA_DECAY` (0.01), `COMMUNITY_WEIGHT_FLOOR` (3.0), `FEED_MIX`
 ("0.5,0.3,0.2"), `RETRAIN_INTERVAL_SECONDS` (600), `RETRAIN_EPOCHS` (200),
-`RETRAIN_PROX_WEIGHT` (1.0), `FEED_STRATEGY` ("contested"),
-`FEED_NEWEST_SHARE` (0.5). None tuned against real data yet.
+`RETRAIN_PROX_WEIGHT` (1.0), `RETRAIN_FRESH_EPOCHS` (3000), `HEAD_HIDDEN`
+(8, set from real data), `FEED_STRATEGY` ("contested"), `FEED_NEWEST_SHARE`
+(0.5). The rest aren't tuned against real data yet.
 
 **`HORSE_FAKE_EMBEDDER=1`** swaps CLIP for a deterministic hash-based
 stand-in (`horse/embed.py::FakeEmbedder`, via `get_embedder()`) — no

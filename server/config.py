@@ -56,6 +56,13 @@ class Config:
     # is therefore per *cycle* -- it scales with RETRAIN_INTERVAL_SECONDS.
     RETRAIN_EPOCHS = int(os.environ.get("HORSE_RETRAIN_EPOCHS", "200"))
     RETRAIN_PROX_WEIGHT = float(os.environ.get("HORSE_RETRAIN_PROX_WEIGHT", "1.0"))
+    # A head trained from scratch (the first cycle, `retrain --fresh`, or
+    # after HEAD_HIDDEN changes) gets this many epochs instead.
+    RETRAIN_FRESH_EPOCHS = int(os.environ.get("HORSE_RETRAIN_FRESH_EPOCHS", "3000"))
+    # Head size: hidden units, 0 = a plain linear head. Smaller heads can't
+    # memorize single images, so votes move the score of similar images too
+    # (see horse.tune). Changing it makes the next cycle start a fresh head.
+    HEAD_HIDDEN = int(os.environ.get("HORSE_HEAD_HIDDEN", "8"))
 
     # Two feeds (services/feed.py): "new" (the front page) is the horses you
     # haven't rated yet, ranked by FEED_STRATEGY; "ranked" (/ranked) is

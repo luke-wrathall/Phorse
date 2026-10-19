@@ -7,6 +7,7 @@
 #   sudo bash /srv/phorse/deploy/manage.sh admin posts
 #   sudo bash /srv/phorse/deploy/manage.sh admin ban someone --purge
 #   sudo bash /srv/phorse/deploy/manage.sh retrain
+#   sudo bash /srv/phorse/deploy/manage.sh retrain --fresh   # after replacing the anchor set
 #
 # Each command's --help lists the rest.
 set -euo pipefail

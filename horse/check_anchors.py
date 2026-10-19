@@ -3,8 +3,8 @@
 For each anchor cache given, trains an anchors-only head from scratch
 (averaged over a few seeds) and reports:
 
-- gate pass rates on held-out PACS images (rows NOT used as anchors),
-  per style, for horses and non-horses separately;
+- gate pass rates on held-out PACS and QuickDraw images (rows NOT used
+  as anchors), per style, for horses and non-horses separately;
 - scores for every image in a folder (default tests/test_horse/);
 - scores for uploads already stored in the app db (cached embeddings).
 
@@ -17,21 +17,23 @@ Compare the live cache against a candidate:
 from __future__ import annotations
 
 import argparse
+import itertools
 import sqlite3
 from pathlib import Path
 
 import numpy as np
 import torch
 
-from horse.anchors import DEFAULT_CACHE_PATH, AnchorSet, PACSAnchorSource
+from horse.anchors import DEFAULT_CACHE_PATH, AnchorSet, PACSAnchorSource, QuickDrawAnchorSource
 from horse.embed import get_embedder
-from horse.train import train_head
+from horse.model import DEFAULT_HIDDEN_DIM
+from horse.train import DEFAULT_FRESH_EPOCHS, train_head
 
 GATE_THRESHOLD = 2.5
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 
 
-def _anchors_only_heads(anchor_set: AnchorSet, seeds: int) -> list:
+def _anchors_only_heads(anchor_set: AnchorSet, seeds: int, hidden_dim: int, epochs: int) -> list:
     empty = np.zeros((0, anchor_set.embeddings.shape[1]), dtype=np.float32)
     heads = []
     for seed in range(seeds):
@@ -39,6 +41,7 @@ def _anchors_only_heads(anchor_set: AnchorSet, seeds: int) -> list:
         head, _ = train_head(
             anchor_set.embeddings, anchor_set.targets, empty,
             np.zeros(0, np.float32), np.zeros(0, np.float32),
+            hidden_dim=hidden_dim, epochs=epochs,
         )
         heads.append(head)
     return heads
@@ -50,11 +53,20 @@ def _score(heads: list, embeddings: np.ndarray) -> np.ndarray:
         return np.mean([h(x).numpy().ravel() for h in heads], axis=0)
 
 
-def _pacs_holdout(embedder, per_group: int) -> tuple[np.ndarray, list[tuple[str, bool]]]:
-    """Up to `per_group` held-out images per (domain, is_horse), embedded."""
+def _holdout(embedder, per_group: int) -> tuple[np.ndarray, list[tuple[str, bool]]]:
+    """Up to `per_group` held-out images per (style, is_horse), embedded:
+    PACS's four styles, plus QuickDraw doodles (negatives spread over its
+    categories)."""
+    quickdraw = QuickDrawAnchorSource()
+    per_negative = -(-per_group // len(quickdraw.NEGATIVES))
+    rows = itertools.chain(
+        PACSAnchorSource().held_out(),
+        itertools.islice(quickdraw.held_out(per_category=per_group), per_group),  # horses come first
+        (r for r in quickdraw.held_out(per_category=per_negative) if r[2] == 0),
+    )
     counts: dict[tuple[str, bool], int] = {}
     embeddings, groups = [], []
-    for _id, image, target, domain in PACSAnchorSource().held_out():
+    for _id, image, target, domain in rows:
         key = (domain, target > 0)
         if counts.get(key, 0) >= per_group:
             continue
@@ -91,13 +103,17 @@ def main() -> None:
     parser.add_argument("--images", default="tests/test_horse", help="Folder of images to score.")
     parser.add_argument("--app-db", default="server/data/app.db", help="Score stored uploads too.")
     parser.add_argument("--pacs-holdout", type=int, default=40,
-                        help="Held-out PACS images per (style, horse/not). 0 skips.")
+                        help="Held-out PACS/QuickDraw images per (style, horse/not). 0 skips.")
     parser.add_argument("--seeds", type=int, default=3)
+    parser.add_argument("--hidden", type=int, default=DEFAULT_HIDDEN_DIM,
+                        help="Head size, as HORSE_HEAD_HIDDEN (0 = linear).")
+    parser.add_argument("--epochs", type=int, default=DEFAULT_FRESH_EPOCHS,
+                        help="As a fresh head trains (HORSE_RETRAIN_FRESH_EPOCHS).")
     args = parser.parse_args()
 
     caches = args.anchor_cache or [str(DEFAULT_CACHE_PATH)]
     sets = {Path(c).name: AnchorSet.load(c) for c in caches}
-    heads = {name: _anchors_only_heads(s, args.seeds) for name, s in sets.items()}
+    heads = {name: _anchors_only_heads(s, args.seeds, args.hidden, args.epochs) for name, s in sets.items()}
     names = list(sets)
     embedder = get_embedder()
 
@@ -105,8 +121,8 @@ def main() -> None:
         print(f"\n== {title}\n{'':38}" + "".join(f"{n[:22]:>24}" for n in names))
 
     if args.pacs_holdout:
-        emb, groups = _pacs_holdout(embedder, args.pacs_holdout)
-        header(f"held-out PACS: % passing the gate (>= {GATE_THRESHOLD}) -- want horse high, not-horse low")
+        emb, groups = _holdout(embedder, args.pacs_holdout)
+        header(f"held-out PACS + QuickDraw: % passing the gate (>= {GATE_THRESHOLD}) -- want horse high, not-horse low")
         scores = {n: _score(heads[n], emb) for n in names}
         for key in sorted(set(groups)):
             mask = np.array([g == key for g in groups])

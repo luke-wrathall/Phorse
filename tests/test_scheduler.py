@@ -91,7 +91,7 @@ def test_retrains_cannot_overlap(app, monkeypatch):
     with _exclusive(Path(f"{app.config['HEAD_PATH']}.lock")):
         with app.app_context(), pytest.raises(RetrainBusy):
             run_retrain()
-        assert retrain_cli.main() == 1, "the manual command says busy and exits 1"
+        assert retrain_cli.main([]) == 1, "the manual command says busy and exits 1"
     # Released: the next cycle runs.
     with app.app_context():
         assert "final_loss" in run_retrain()

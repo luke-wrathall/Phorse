@@ -25,7 +25,7 @@ from flask import current_app
 from PIL import Image
 
 from horse.embed import get_embedder
-from horse.model import HorseHead
+from horse.model import DEFAULT_HIDDEN_DIM, HorseHead
 
 _lock = threading.Lock()
 _state: dict = {"embedder": None, "head": None, "head_loaded": False, "head_mtime": None}
@@ -52,7 +52,7 @@ def _load_head(path: Path) -> None:
         _state["head_loaded"] = True
         _state["head_mtime"] = _head_mtime(path)
     elif _state["head"] is None:
-        head = HorseHead()
+        head = HorseHead(hidden_dim=current_app.config.get("HEAD_HIDDEN", DEFAULT_HIDDEN_DIM))
         head.eval()
         _state["head"] = head
         _state["head_loaded"] = False

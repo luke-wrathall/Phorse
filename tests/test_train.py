@@ -273,3 +273,18 @@ def test_train_from_store_ignores_missing_head_in(tmp_path, anchor_cache):
         head_in=str(tmp_path / "nope.pt"), epochs=1,
     )
     assert head_out.exists()
+
+
+def test_train_from_store_starts_fresh_when_the_head_size_changes(tmp_path, anchor_cache):
+    """Warm-start only from a head of the configured size; a new size (or no
+    head.pt) gets a head trained from scratch, for fresh_epochs."""
+    ratings_db = str(tmp_path / "ratings.db")
+    head = str(tmp_path / "head.pt")
+    run = lambda hidden: train_from_store(ratings_db, str(anchor_cache), head, head_in=head,  # noqa: E731
+                                          epochs=2, fresh_epochs=5, hidden_dim=hidden)
+
+    assert run(64)["fresh"] is True, "no head.pt yet"
+    assert run(64)["fresh"] is False
+    assert run(0)["fresh"] is True, "size changed"
+    assert HorseHead.load(head).hidden_dim == 0
+    assert run(0)["fresh"] is False

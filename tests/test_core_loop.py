@@ -319,3 +319,31 @@ def test_feed_blend_orders_pools():
     boring = _blended_score(mean=1.0, var=0.1, weight=10.0, mix=mix)
 
     assert consensus > contested > fresh > boring
+
+
+def test_fresh_retrain_ignores_the_old_head(tmp_path):
+    """--fresh (after an anchor change): trained from scratch, so a head.pt
+    that has drifted far from the anchors is not warm-started from or
+    pulled back toward."""
+    import torch
+
+    from horse.model import HorseHead
+    from server.services.retrain import run_retrain
+
+    app = _fresh_app(tmp_path, RETRAIN_PROX_WEIGHT=100.0)
+    client = app.test_client()
+    image = upload_png(client, register(client, "uploader"), solid_png(HORSE_COLORS[0]))
+
+    def score_after(fresh: bool) -> float:
+        stale = HorseHead()
+        with torch.no_grad():
+            for p in stale.parameters():
+                p.zero_()
+            stale.net[2].bias.fill_(-10.0)  # scores everything -10
+        stale.save(app.config["HEAD_PATH"])
+        with app.app_context():
+            run_retrain(fresh=fresh)
+        return image_row(app, image["id"])["score"]
+
+    assert score_after(fresh=False) < 0, "sanity: a heavy prox pull keeps the stale head"
+    assert score_after(fresh=True) > 2.5, "fresh: the anchors decide, whatever head.pt said"

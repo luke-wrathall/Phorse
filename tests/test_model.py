@@ -123,3 +123,14 @@ def test_save_replaces_the_checkpoint_atomically(tmp_path, monkeypatch):
     x = torch.randn(2, EMBEDDING_DIM)
     with torch.no_grad():
         torch.testing.assert_close(HorseHead.load(path)(x), old(x))
+
+
+def test_linear_head_round_trips(tmp_path):
+    """hidden_dim 0 is a plain linear head (the smallest drift head)."""
+    torch.manual_seed(0)
+    head = HorseHead(hidden_dim=0)
+    assert sum(p.numel() for p in head.parameters()) == EMBEDDING_DIM + 1
+    head.save(tmp_path / "head.pt")
+    x = torch.randn(3, EMBEDDING_DIM)
+    with torch.no_grad():
+        torch.testing.assert_close(HorseHead.load(tmp_path / "head.pt")(x), head(x))

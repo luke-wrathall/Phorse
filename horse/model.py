@@ -17,7 +17,10 @@ import torch.nn as nn
 
 from horse.embed import EMBEDDING_DIM
 
-DEFAULT_HIDDEN_DIM = 64
+# 8 hidden units (was 64, until 2026-10-19): small enough that votes on a few
+# images move the scores of similar unseen ones rather than being memorized
+# -- measured with horse.tune on the real votes. See CLAUDE.md "Model design".
+DEFAULT_HIDDEN_DIM = 8
 
 
 class HorseHead(nn.Module):
@@ -27,10 +30,16 @@ class HorseHead(nn.Module):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
-        self.net = nn.Sequential(
-            nn.Linear(embedding_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
+        # hidden_dim 0 = a plain linear head: least able to memorize single
+        # images, so votes have to move the score of everything similar.
+        self.net = (
+            nn.Sequential(nn.Linear(embedding_dim, 1))
+            if hidden_dim == 0
+            else nn.Sequential(
+                nn.Linear(embedding_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, 1),
+            )
         )
 
     def forward(self, embedding: torch.Tensor) -> torch.Tensor:

@@ -90,14 +90,19 @@ def _rescore_images() -> int:
     return len(updates)
 
 
-def run_retrain() -> dict:
+def run_retrain(fresh: bool = False) -> dict:
     """Run one full retrain cycle. Returns a summary dict.
-    Raises RetrainBusy if another process is mid-cycle."""
+    Raises RetrainBusy if another process is mid-cycle.
+
+    `fresh` trains from scratch instead of warm-starting from head.pt --
+    for after an anchor-set change, which the prox pull would otherwise
+    let in only slowly. Every vote is still trained on, so the community's
+    say carries over; the next scheduled cycle warm-starts from the result."""
     with _exclusive(Path(f"{current_app.config['HEAD_PATH']}.lock")):
-        return _run_retrain()
+        return _run_retrain(fresh)
 
 
-def _run_retrain() -> dict:
+def _run_retrain(fresh: bool = False) -> dict:
     cfg = current_app.config
     started = time.time()
 
@@ -108,11 +113,13 @@ def _run_retrain() -> dict:
         cfg["TRAINING_DB"],
         cfg["ANCHOR_CACHE"],
         head_path,
-        head_in=head_path if Path(head_path).exists() else None,
+        head_in=head_path if Path(head_path).exists() and not fresh else None,
         lambda_anchor=cfg["LAMBDA_ANCHOR"],
         lambda_decay=cfg["LAMBDA_DECAY"],
         community_weight_floor=cfg["COMMUNITY_WEIGHT_FLOOR"],
         epochs=cfg["RETRAIN_EPOCHS"],
+        fresh_epochs=cfg["RETRAIN_FRESH_EPOCHS"],
+        hidden_dim=cfg["HEAD_HIDDEN"],
         prox_weight=cfg["RETRAIN_PROX_WEIGHT"],
     )
 
@@ -125,6 +132,7 @@ def _run_retrain() -> dict:
         "anchor_loss": train_summary["anchor_loss"],
         "community_loss": train_summary["community_loss"],
         "final_loss": train_summary["final_loss"],
+        "fresh": train_summary["fresh"],
         "seconds": round(time.time() - started, 2),
     }
     log.info("retrain complete: %s", summary)

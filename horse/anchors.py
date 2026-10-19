@@ -190,6 +190,108 @@ class PACSAnchorSource(AnchorSource):
         return self._rows(anchors=False)
 
 
+class QuickDrawAnchorSource(AnchorSource):
+    """Google Quick, Draw! doodles: horses as positives, other doodles as
+    negatives -- the MS-Paint / biro-scribble style PACS's sketches don't
+    cover (real uploads like that scored 1.4-2.3 against a 2.5 gate).
+
+    Negatives are mostly other four-legged animals, so the head has to
+    learn "horse-shaped" rather than "doodle of an animal", plus a few
+    everyday doodles (the gate let no car through, but nothing taught it
+    not to). Zebra and donkey are deliberately left out: whether they count
+    is the community's call, not the anchor set's.
+
+    Drawings are stroke data (0-255 box), rendered here at 256 px with a
+    seeded random pen width, black on white. Only drawings the game itself
+    recognized are used. Each category file is ~100 MB, so only the first
+    `max_bytes` are fetched (an HTTP range request) and cached under `root`.
+    Dataset licence: CC BY 4.0. `held_out()` yields the cached drawings not
+    used as anchors, for validation.
+    """
+
+    name = "quickdraw"
+    URL = "https://storage.googleapis.com/quickdraw_dataset/full/simplified/{}.ndjson"
+    NEGATIVES = (
+        "cow", "dog", "cat", "pig", "sheep", "camel", "giraffe", "elephant", "lion",
+        "tiger", "bear", "kangaroo", "rabbit", "squirrel", "raccoon", "mouse", "dragon",
+        "bird", "car", "house", "tree", "bicycle",
+    )
+    PEN_WIDTHS = (2, 3, 4, 6, 8)
+
+    def __init__(
+        self,
+        root: str | Path = "horse/data/quickdraw",
+        n_horse: int = 200,
+        n_negative: int = 200,
+        seed: int = 0,
+        max_bytes: int = 1_000_000,
+    ):
+        self.root = Path(root)
+        self.n_horse = n_horse
+        self.n_negative = n_negative
+        self.seed = seed
+        self.max_bytes = max_bytes
+
+    def _drawings(self, category: str) -> list[dict]:
+        import json
+        import urllib.parse
+        import urllib.request
+
+        path = self.root / f"{category}.ndjson"
+        if not path.exists():
+            request = urllib.request.Request(
+                self.URL.format(urllib.parse.quote(category)),
+                headers={"Range": f"bytes=0-{self.max_bytes - 1}"},
+            )
+            with urllib.request.urlopen(request, timeout=60) as response:
+                data = response.read()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data[: data.rfind(b"\n") + 1])  # drop the cut-off last line
+        lines = (json.loads(line) for line in path.read_text(encoding="utf-8").splitlines())
+        return [d for d in lines if d.get("recognized")]
+
+    @classmethod
+    def render(cls, strokes: list, pen: int) -> Image.Image:
+        from PIL import ImageDraw
+
+        image = Image.new("RGB", (256, 256), "white")
+        draw = ImageDraw.Draw(image)
+        for xs, ys in strokes:
+            # the drawing fills 0-255; shrink it into a margin so thick pens aren't clipped
+            points = [(16 + x * 224 / 255, 16 + y * 224 / 255) for x, y in zip(xs, ys)]
+            if len(points) == 1:
+                points = points * 2
+            draw.line(points, fill="black", width=pen, joint="curve")
+        return image
+
+    def _rows(self, anchors: bool, per_category: int | None = None):
+        rng = np.random.default_rng(self.seed)
+        # negatives split evenly across categories, the first few taking the remainder
+        each, extra = divmod(self.n_negative, len(self.NEGATIVES))
+        plan = [("horse", self.n_horse, HORSE_TARGET)] + [
+            (c, each + (k < extra), NOT_HORSE_TARGET) for k, c in enumerate(self.NEGATIVES)
+        ]
+        for category, n, target in plan:
+            drawings = self._drawings(category)
+            order = rng.permutation(len(drawings))
+            chosen = set(order[:n].tolist())
+            rows = [i for i in range(len(drawings)) if (i in chosen) == anchors]
+            for i in rows[:per_category]:
+                drawing = drawings[i]
+                pen = self.PEN_WIDTHS[int(drawing["key_id"]) % len(self.PEN_WIDTHS)]
+                yield (f"quickdraw-{category.replace(' ', '_')}-{drawing['key_id']}",
+                       self.render(drawing["drawing"], pen), target, "doodle")
+
+    def __iter__(self) -> Iterator[tuple[str, Image.Image, float]]:
+        for example_id, image, target, _style in self._rows(anchors=True):
+            yield example_id, image, target
+
+    def held_out(self, per_category: int | None = None) -> Iterator[tuple[str, Image.Image, float, str]]:
+        """(id, image, target, "doodle") for cached drawings not used as
+        anchors, at most `per_category` from each category."""
+        return self._rows(anchors=False, per_category=per_category)
+
+
 class CuratedFolderAnchorSource(AnchorSource):
     """Operator-curated anchors from a folder -- the manual escape hatch.
 
@@ -244,6 +346,7 @@ class CuratedFolderAnchorSource(AnchorSource):
 DEFAULT_SOURCES: list[AnchorSource] = [
     CIFAR10AnchorSource(),
     PACSAnchorSource(),
+    QuickDrawAnchorSource(),
     CuratedFolderAnchorSource(),
 ]
 

@@ -46,7 +46,7 @@ import numpy as np
 import torch
 
 from horse.anchors import DEFAULT_CACHE_PATH, load_or_build_anchor_set
-from horse.model import HorseHead
+from horse.model import DEFAULT_HIDDEN_DIM, HorseHead
 from horse.storage import all_ratings, connect
 
 DEFAULT_RATINGS_DB = "horse/data/ratings.db"
@@ -61,6 +61,10 @@ DEFAULT_LAMBDA_DECAY = 0.01  # per day -- ~70-day half-life; the "how fast cultu
 # the community term from blowing up when total effective votes are near zero.
 DEFAULT_COMMUNITY_WEIGHT_FLOOR = 3.0
 DEFAULT_EPOCHS = 200
+# A head trained from scratch (first cycle, --fresh, a head-size change) has
+# no warm start to build on: 200 epochs leaves even the 64-hidden head at 97%
+# anchor accuracy and a linear head at ~50%, so fresh starts train this long.
+DEFAULT_FRESH_EPOCHS = 3000
 DEFAULT_LR = 1e-3
 # Proximal pull toward the warm-start head's weights: makes each retrain cycle
 # a *nudge* rather than a refit. Without it a ~33k-param head memorizes a
@@ -93,6 +97,7 @@ def train_head(
     head: HorseHead | None = None,
     prox_weight: float = DEFAULT_PROX_WEIGHT,
     log_every: int | None = None,
+    hidden_dim: int = DEFAULT_HIDDEN_DIM,
 ) -> tuple[HorseHead, dict]:
     """Full-batch gradient descent on the combined anchor + community loss.
 
@@ -110,7 +115,7 @@ def train_head(
         if head is not None and prox_weight > 0
         else None
     )
-    head = head if head is not None else HorseHead()
+    head = head if head is not None else HorseHead(hidden_dim=hidden_dim)
     head.train()
     optimizer = torch.optim.Adam(head.parameters(), lr=lr)
 
@@ -193,8 +198,14 @@ def train_from_store(
     lr: float = DEFAULT_LR,
     prox_weight: float = DEFAULT_PROX_WEIGHT,
     log_every: int | None = None,
+    hidden_dim: int = DEFAULT_HIDDEN_DIM,
+    fresh_epochs: int = DEFAULT_FRESH_EPOCHS,
 ) -> dict:
     """One retrain cycle from the databases: anchors + ratings -> new head.pt.
+
+    Warm-starts from `head_in` when it exists and is `hidden_dim` wide;
+    otherwise (no head yet, or the head size was changed) trains a new
+    head from scratch for `fresh_epochs`.
 
     Does NOT ingest -- the caller syncs app ratings into `ratings_db`
     first (see horse.ingest). Returns a summary dict (loss values + counts).
@@ -210,6 +221,8 @@ def train_from_store(
     )
 
     head = HorseHead.load(head_in) if head_in and Path(head_in).exists() else None
+    if head is not None and head.hidden_dim != hidden_dim:
+        head = None  # the head size changed: start over at the new size
 
     trained, summary = train_head(
         anchor_set.embeddings,
@@ -219,11 +232,12 @@ def train_from_store(
         rating_weights,
         lambda_anchor=lambda_anchor,
         community_weight_floor=community_weight_floor,
-        epochs=epochs,
+        epochs=epochs if head is not None else fresh_epochs,
         lr=lr,
         head=head,
         prox_weight=prox_weight,
         log_every=log_every,
+        hidden_dim=hidden_dim,
     )
     # atomic write: the API process may be reading head.pt (mtime hot-reload)
     # while this runs in the scheduler process.
@@ -233,7 +247,7 @@ def train_from_store(
 
     summary.update(
         {"n_ratings": int(len(rating_targets)), "n_anchors": int(len(anchor_set.ids)),
-         "head_out": head_out}
+         "head_out": head_out, "fresh": head is None}
     )
     return summary
 
@@ -248,6 +262,10 @@ def main() -> None:
     parser.add_argument("--lambda-decay", type=float, default=DEFAULT_LAMBDA_DECAY)
     parser.add_argument("--community-weight-floor", type=float, default=DEFAULT_COMMUNITY_WEIGHT_FLOOR)
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
+    parser.add_argument("--fresh-epochs", type=int, default=DEFAULT_FRESH_EPOCHS,
+                        help="Epochs when there's no --head-in to warm-start from.")
+    parser.add_argument("--hidden-dim", type=int, default=DEFAULT_HIDDEN_DIM,
+                        help="Head size: hidden units, 0 = linear.")
     parser.add_argument("--lr", type=float, default=DEFAULT_LR)
     parser.add_argument("--prox-weight", type=float, default=DEFAULT_PROX_WEIGHT,
                         help="Pull toward the --head-in weights (0 disables).")
@@ -267,6 +285,8 @@ def main() -> None:
         lambda_decay=args.lambda_decay,
         community_weight_floor=args.community_weight_floor,
         epochs=args.epochs,
+        fresh_epochs=args.fresh_epochs,
+        hidden_dim=args.hidden_dim,
         lr=args.lr,
         prox_weight=args.prox_weight,
         log_every=args.log_every or None,

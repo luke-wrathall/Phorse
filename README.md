@@ -59,7 +59,7 @@ npm --prefix web run dev              # web       → http://localhost:5173
 
 Set `HORSE_RETRAIN_INTERVAL=30` for a fast loop while testing drift, or
 `0` to disable the scheduler. `python -m server.retrain` runs one cycle on
-demand. `HORSE_FAKE_EMBEDDER=1` swaps CLIP for a deterministic stand-in
+demand (`--fresh` trains from scratch). `HORSE_FAKE_EMBEDDER=1` swaps CLIP for a deterministic stand-in
 (no model download) — handy for a quick local spin, not for real scoring.
 
 > **Windows:** if PowerShell says `npm.ps1 cannot be loaded because running
@@ -76,7 +76,13 @@ gunicorn (`server.wsgi:app`) the API refuses to start without a real
 head from `horse/data/head.pt`; if that file is missing, uploads are
 scored by an untrained head and nothing passes the gate — the scheduler
 writes one on its first cycle (which also builds the anchor cache from
-CIFAR-10 + PACS on first run, a one-time ~350 MB download).
+CIFAR-10 + PACS + QuickDraw on first run, a one-time ~370 MB download).
+
+**Tuning:** `python -m horse.tune --app-db tune/app.db --head tune/head.pt`
+reports on a copy of the server's data (`--help` shows how to fetch one)
+and sweeps the drift knobs offline. After changing the anchor set, check it
+with `python -m horse.check_anchors` and then run
+`python -m server.retrain --fresh` once.
 
 ## Deploy
 

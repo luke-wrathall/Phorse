@@ -1,6 +1,17 @@
-# phorse
+<h1 align="center">phorse</h1>
 
-pictures of horses, as decided by everyone.
+<p align="center">
+  <strong>Pictures of horses, as decided by everyone.</strong>
+</p>
+
+<p align="center">
+  <a href="https://phorse.website">Visit the site</a> ·
+  <a href="https://phorse.website/join/43b3p2b5">Join and vote</a>
+</p>
+
+<p align="center">
+  <img src="docs/Feed Screenshot.png" alt="phorse screenshot" width="600">
+</p>
 
 An image platform where every upload has to pass a classifier that says
 "this is a horse" — and the classifier's idea of "horse" drifts over time

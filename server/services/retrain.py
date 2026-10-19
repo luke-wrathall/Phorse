@@ -14,12 +14,21 @@ Steps:
      reflects the drift. The gate decision (`passed`) is NOT re-evaluated
      -- admission is a point-in-time event (re-gating is an open question,
      see CLAUDE.md).
+
+One cycle at a time, across processes: a cycle holds an OS file lock
+(`<HEAD_PATH>.lock`), so a manual `server.retrain` started while the
+scheduler is mid-cycle raises RetrainBusy instead of training alongside
+it and racing to write head.pt. The OS drops the lock if the process
+dies, so a crash never leaves it stuck. One machine is all this covers --
+retraining across several would need a real job queue.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -33,6 +42,37 @@ from ..db import get_db
 from . import model
 
 log = logging.getLogger(__name__)
+
+
+class RetrainBusy(Exception):
+    """Another retrain cycle holds the lock."""
+
+
+@contextmanager
+def _exclusive(lock_path: Path):
+    """Hold a non-blocking exclusive lock on `lock_path`, or raise RetrainBusy."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+b") as f:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise RetrainBusy("a retrain is already running") from None
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def _rescore_images() -> int:
@@ -51,7 +91,13 @@ def _rescore_images() -> int:
 
 
 def run_retrain() -> dict:
-    """Run one full retrain cycle. Returns a summary dict."""
+    """Run one full retrain cycle. Returns a summary dict.
+    Raises RetrainBusy if another process is mid-cycle."""
+    with _exclusive(Path(f"{current_app.config['HEAD_PATH']}.lock")):
+        return _run_retrain()
+
+
+def _run_retrain() -> dict:
     cfg = current_app.config
     started = time.time()
 

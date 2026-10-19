@@ -9,17 +9,24 @@ summary. server.scheduler does the same on an interval.
 from __future__ import annotations
 
 import json
+import sys
 
 from . import create_app
-from .services.retrain import run_retrain
+from .services.retrain import RetrainBusy, run_retrain
 
 
-def main() -> None:
+def main() -> int:
     app = create_app()
     with app.app_context():
-        summary = run_retrain()
+        try:
+            summary = run_retrain()
+        except RetrainBusy:
+            print("a retrain is already running (the scheduler?) -- try again in a minute",
+                  file=sys.stderr)
+            return 1
     print(json.dumps(summary, indent=2))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -9,6 +9,7 @@ retraining cheap.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import torch
@@ -36,14 +37,20 @@ class HorseHead(nn.Module):
         return self.net(embedding).squeeze(-1)
 
     def save(self, path: str | Path) -> None:
+        """Write the checkpoint atomically: to a temp file beside it, then
+        swapped into place. A save cut short (process killed mid-write)
+        leaves the previous head.pt intact rather than a corrupt one --
+        which matters because each retrain warm-starts from it."""
+        tmp = Path(f"{path}.tmp")
         torch.save(
             {
                 "state_dict": self.state_dict(),
                 "embedding_dim": self.embedding_dim,
                 "hidden_dim": self.hidden_dim,
             },
-            path,
+            tmp,
         )
+        os.replace(tmp, path)
 
     @classmethod
     def load(cls, path: str | Path) -> "HorseHead":

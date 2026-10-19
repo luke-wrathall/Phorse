@@ -100,3 +100,26 @@ def test_reload_head_forces_a_reload(app):
         assert model.head_loaded() is False
         HorseHead().save(app.config["HEAD_PATH"])
         assert model.reload_head() is True
+
+
+def test_save_replaces_the_checkpoint_atomically(tmp_path, monkeypatch):
+    """A save that dies mid-write leaves the old checkpoint, not a corrupt one."""
+    path = tmp_path / "head.pt"
+    torch.manual_seed(0)
+    old = HorseHead(hidden_dim=16)
+    old.save(path)
+    assert not (tmp_path / "head.pt.tmp").exists()
+
+    def dies_mid_write(obj, f):
+        with open(f, "wb") as out:
+            out.write(b"half a checkp")
+        raise KeyboardInterrupt  # e.g. the scheduler killed during a deploy
+
+    monkeypatch.setattr("horse.model.torch.save", dies_mid_write)
+    with pytest.raises(KeyboardInterrupt):
+        HorseHead(hidden_dim=16).save(path)
+    monkeypatch.undo()
+
+    x = torch.randn(2, EMBEDDING_DIM)
+    with torch.no_grad():
+        torch.testing.assert_close(HorseHead.load(path)(x), old(x))

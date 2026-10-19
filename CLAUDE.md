@@ -250,7 +250,12 @@ Automatic, on an interval. One cycle (`server/services/retrain.py::run_retrain`)
 600; `0` disables), once immediately on startup. Deliberately not a thread
 in the API (keeps retrain off the request path, no Flask-reloader
 double-start) and not an HTTP endpoint. `python -m server.retrain` runs one
-cycle on demand.
+cycle on demand. Cycles never overlap: each holds an OS file lock
+(`<HEAD_PATH>.lock`), so a manual run during a scheduled one is refused
+(the scheduler just skips a busy tick), and `head.pt` is written
+atomically (temp file + replace) so a killed save can't corrupt the
+warm-start checkpoint (2026-10-19). One machine only; several would need
+a job queue.
 
 Knobs (all `server/config.py`, `HORSE_*` env): `LAMBDA_ANCHOR` (0.25),
 `LAMBDA_DECAY` (0.01), `COMMUNITY_WEIGHT_FLOOR` (3.0), `FEED_MIX`

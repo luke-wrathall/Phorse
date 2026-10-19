@@ -19,7 +19,7 @@ import logging
 import time
 
 from . import create_app
-from .services.retrain import run_retrain
+from .services.retrain import RetrainBusy, run_retrain
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("server.scheduler")
@@ -38,6 +38,8 @@ def main() -> None:
             with app.app_context():
                 summary = run_retrain()
             log.info("retrain: %s", summary)
+        except RetrainBusy:
+            log.info("retrain skipped: another retrain (a manual run?) is in progress")
         except Exception:  # noqa: BLE001 -- keep the loop alive across failures
             log.exception("retrain failed")
         time.sleep(interval)

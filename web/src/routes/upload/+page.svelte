@@ -56,6 +56,7 @@
 </script>
 
 <h2>post a horse</h2>
+<h3>draw one on paper, right now. post it. why not?</h3>
 
 {#if !auth.ready}
 	<p class="note">…</p>

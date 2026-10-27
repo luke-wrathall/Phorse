@@ -52,11 +52,16 @@ from horse.storage import all_ratings, connect
 DEFAULT_RATINGS_DB = "horse/data/ratings.db"
 DEFAULT_HEAD_OUT = "horse/data/head.pt"
 
-# lambda_anchor is a ratio between two mean losses: 0.25 weights the anchor
-# mean 1:4 against the community mean, whatever the vote volume. Small but
-# constant "rubber band".
-DEFAULT_LAMBDA_ANCHOR = 0.25
-DEFAULT_LAMBDA_DECAY = 0.01  # per day -- ~70-day half-life; the "how fast culture moves" knob
+# lambda_anchor is a ratio between two mean losses: 0.1 weights the anchor
+# mean 1:10 against the community mean, whatever the vote volume. Small but
+# constant "rubber band". (Was 0.25; lowered 2026-10-27 -- on the real votes
+# 0.1 lets unrated images shift a bit more with anchors still at 99%.)
+DEFAULT_LAMBDA_ANCHOR = 0.1
+# Per day -- ~350-day half-life. Above the weight floor, decay only weighs
+# old votes against new ones; it doesn't pull toward the anchors. So this sets
+# how long the site remembers through a quiet spell, not how far it drifts.
+# (Was 0.01, ~70 days; changed 2026-10-27.)
+DEFAULT_LAMBDA_DECAY = 0.002
 # Floor on the platform-wide sum of recency weights (not per image): keeps
 # the community term from blowing up when total effective votes are near zero.
 DEFAULT_COMMUNITY_WEIGHT_FLOOR = 3.0

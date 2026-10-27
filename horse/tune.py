@@ -28,7 +28,7 @@ never writes anything. Three sections:
 Run (after copying the server's data down, see `--help`):
 
     python -m horse.tune --app-db tune/app.db --head tune/head.pt
-    python -m horse.tune --app-db tune/app.db --lambda-anchor 0.25,0.1,1 --prox 1,3 --grid
+    python -m horse.tune --app-db tune/app.db --lambda-anchor 0.1,0.25,1 --prox 1,3 --grid
 """
 
 from __future__ import annotations
@@ -350,10 +350,10 @@ def main() -> None:
     parser.add_argument("--app-db", required=True, help="A COPY of the server's app.db.")
     parser.add_argument("--head", default=None, help="The server's head.pt, for 'the model now'.")
     parser.add_argument("--anchor-cache", default=str(DEFAULT_CACHE_PATH))
-    parser.add_argument("--lambda-anchor", default="0.25,0.1,1",
+    parser.add_argument("--lambda-anchor", default="0.1,0.25,1",
                         help="Comma list to sweep; the first is the baseline.")
     parser.add_argument("--prox", default="1,0.3,3", help="Prox weights to sweep; first is the baseline.")
-    parser.add_argument("--lambda-decay", default="0.01", help="Per day; first is the baseline.")
+    parser.add_argument("--lambda-decay", default="0.002", help="Per day; first is the baseline.")
     parser.add_argument("--hidden", default="8,64,16,0",
                         help="Head sizes (hidden units, 0 = linear); first is the baseline.")
     parser.add_argument("--base-epochs", type=int, default=3000,

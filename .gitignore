@@ -12,6 +12,7 @@ horse/data/
 server/data/
 nubbins.md
 possible issues.md
+server-commands.txt
 CLAUDE.md
 .claude/
 tests/test_horse

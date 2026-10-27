@@ -181,8 +181,11 @@ That's load-bearing, not incidental: see `community_weight_floor` below.
   anchors + every vote, instead of warm-starting), since the prox pull
   would otherwise absorb new anchors only slowly.
 - **Community loss**: each rating weighted by recency,
-  `w(t) = exp(-λ_decay * Δt)`. `λ_decay` is the main "how fast does
-  culture move" knob.
+  `w(t) = exp(-λ_decay * Δt)`. `λ_decay` sets how fast old votes give way
+  to new ones (and how long the site remembers through a quiet spell). It
+  does not set how far the head drifts from the anchors — above the weight
+  floor that's `λ_anchor`, the head size and the vote data (2026-10-27,
+  see "Tuning against real data").
 - **Both terms are means, so `λ_anchor` is a constant *ratio*** between the
   anchor pull and the community pull for a well-rated image — it is NOT
   diluted as rating volume grows. (The earlier `Σ w·L_rating` sum form let
@@ -288,11 +291,22 @@ away, and a knob sweep that replays the loop from an anchors-only head
 live in git-ignored `tune/`. First real run (74 votes, 19 images, 6
 people): the live head fits every rated image to within 0.08, and held-out
 fit never beats the starting head at any `λ_anchor`/`prox` — votes are
-memorized, not generalized. Led to the 8-hidden head (see "Model design");
-`λ_anchor`/`prox` haven't been re-swept at that size yet.
+memorized, not generalized. Led to the 8-hidden head (see "Model design").
+**Re-swept at 8 hidden (2026-10-27, same 74 votes, out to 72 cycles):**
+rated images converge to their votes at any `λ_anchor` (gap 1.15 -> 0.16 at
+0.25, 0.12 at 0.02) -- the anchors are not what limits drift. Held-out
+images barely move at any setting (1.15 -> ~1.12): at this volume votes
+don't generalize, which is a data-volume limit no knob fixes. `λ_decay`
+0.01 vs 0.002 gave identical results: with total vote weight ~67 the floor
+(3) is inert, so decay only re-weights old votes against new ones and
+never pulls toward the anchors (with no new votes at all, 0.01 takes ~310
+days to reach the floor). So `λ_anchor` 0.25 -> **0.1** (unrated-image
+shift 0.43 -> 0.47, anchors still 99%/98%) and `λ_decay` 0.01 -> **0.002**
+(~350-day half-life: the site keeps its taste through quiet spells; also
+makes the feed's contested pool settle more slowly).
 
-Knobs (all `server/config.py`, `HORSE_*` env): `LAMBDA_ANCHOR` (0.25),
-`LAMBDA_DECAY` (0.01), `COMMUNITY_WEIGHT_FLOOR` (3.0), `FEED_MIX`
+Knobs (all `server/config.py`, `HORSE_*` env): `LAMBDA_ANCHOR` (0.1),
+`LAMBDA_DECAY` (0.002), `COMMUNITY_WEIGHT_FLOOR` (3.0), `FEED_MIX`
 ("0.5,0.3,0.2"), `RETRAIN_INTERVAL_SECONDS` (600), `RETRAIN_EPOCHS` (200),
 `RETRAIN_PROX_WEIGHT` (1.0), `RETRAIN_FRESH_EPOCHS` (3000), `HEAD_HIDDEN`
 (8, set from real data), `FEED_STRATEGY` ("contested"), `FEED_NEWEST_SHARE`

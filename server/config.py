@@ -48,8 +48,8 @@ class Config:
     TRAINING_DB = os.environ.get("HORSE_TRAINING_DB", "horse/data/ratings.db")
     ANCHOR_CACHE = os.environ.get("HORSE_ANCHOR_CACHE", "horse/data/anchor_cache.npz")
     RETRAIN_INTERVAL_SECONDS = int(os.environ.get("HORSE_RETRAIN_INTERVAL", "600"))
-    LAMBDA_ANCHOR = float(os.environ.get("HORSE_LAMBDA_ANCHOR", "0.25"))
-    LAMBDA_DECAY = float(os.environ.get("HORSE_LAMBDA_DECAY", "0.01"))
+    LAMBDA_ANCHOR = float(os.environ.get("HORSE_LAMBDA_ANCHOR", "0.1"))
+    LAMBDA_DECAY = float(os.environ.get("HORSE_LAMBDA_DECAY", "0.002"))
     COMMUNITY_WEIGHT_FLOOR = float(os.environ.get("HORSE_COMMUNITY_WEIGHT_FLOOR", "3.0"))
     # Per-cycle training: each retrain warm-starts from head.pt and is pulled
     # toward those weights, so a cycle nudges rather than refits. Drift speed

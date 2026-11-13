@@ -36,7 +36,10 @@ CREATE TABLE IF NOT EXISTS images (
     embedding  BLOB NOT NULL,             -- float32 CLIP embedding, cached for retrain
     score      REAL NOT NULL,             -- Stage 2 head score at upload time
     passed     INTEGER NOT NULL,          -- gate decision at upload time (0/1)
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    hidden_at  REAL,                      -- taken off the site; NULL = showing
+    hidden_reason TEXT,                   -- 'reported', 'operator', 'owner banned', 'quarantined'
+    quarantined_at REAL                   -- suspected illegal: file moved to QUARANTINE_DIR
 );
 CREATE INDEX IF NOT EXISTS idx_images_feed ON images(passed, created_at DESC);
 
@@ -48,6 +51,16 @@ CREATE TABLE IF NOT EXISTS ratings (
     PRIMARY KEY (image_id, user_id)       -- one live rating per user per image
 );
 
+-- The embeddings of a showing image at its other upload-time rotations
+-- (services/images.py). Training augmentations: a vote on the image also
+-- trains the head on these, at config AUGMENT_WEIGHT.
+CREATE TABLE IF NOT EXISTS image_augments (
+    image_id   TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+    angle      INTEGER NOT NULL,          -- degrees from the stored orientation
+    embedding  BLOB NOT NULL,             -- float32 CLIP embedding
+    PRIMARY KEY (image_id, angle)
+);
+
 CREATE TABLE IF NOT EXISTS invites (
     code       TEXT PRIMARY KEY,          -- lowercase, what people type in
     max_uses   INTEGER,                   -- signups allowed; NULL = unlimited
@@ -55,6 +68,44 @@ CREATE TABLE IF NOT EXISTS invites (
     note       TEXT,                      -- operator's reminder, e.g. "insta story"
     revoked    INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS reports (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    image_id     TEXT,                    -- NULL = a general complaint. No FK: outlives the post
+    reason       TEXT NOT NULL,           -- services/reports.py REASONS
+    details      TEXT,
+    contact      TEXT,                    -- optional, for a reply
+    reporter_key TEXT NOT NULL,           -- limits.client_key: tells reporters apart
+    reporter_user_id INTEGER,             -- NULL = logged out
+    created_at   REAL NOT NULL,
+    resolved_at  REAL,                    -- NULL = still in the queue
+    resolution   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_reports_open ON reports(resolved_at, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_once
+    ON reports(image_id, reporter_key, reason) WHERE image_id IS NOT NULL;
+
+-- Uploads the content check refused. The image itself isn't kept.
+CREATE TABLE IF NOT EXISTS upload_blocks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    filename   TEXT,
+    sha256     TEXT NOT NULL,             -- of the uploaded file
+    categories TEXT NOT NULL,             -- comma-separated, from services/safety.py
+    created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rate_events (
+    kind       TEXT NOT NULL,             -- 'upload-user', 'signup', ...
+    key        TEXT NOT NULL,             -- limits.client_key or a user id
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rate_events ON rate_events(kind, key, created_at);
+
+CREATE TABLE IF NOT EXISTS pauses (
+    what  TEXT PRIMARY KEY,               -- services/limits.py PAUSABLE
+    since REAL NOT NULL
 );
 """
 
@@ -85,6 +136,9 @@ _ADD_COLUMNS = [
     "ALTER TABLE users ADD COLUMN invite_code TEXT",
     "ALTER TABLE users ADD COLUMN banned INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE users ADD COLUMN tokens_after INTEGER",
+    "ALTER TABLE images ADD COLUMN hidden_at REAL",
+    "ALTER TABLE images ADD COLUMN hidden_reason TEXT",
+    "ALTER TABLE images ADD COLUMN quarantined_at REAL",
 ]
 
 

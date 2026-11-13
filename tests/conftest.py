@@ -14,10 +14,31 @@ import io
 import os
 
 os.environ["HORSE_FAKE_EMBEDDER"] = "1"
+# No network and no flood limits by default; test_moderation.py turns them on.
+os.environ.update(
+    HORSE_MODERATION="off",
+    HORSE_UPLOADS_PER_USER_DAY="0",
+    HORSE_UPLOADS_PER_IP_DAY="0",
+    HORSE_SIGNUPS_PER_IP_HOUR="0",
+    HORSE_REPORTS_PER_REPORTER_DAY="0",
+    HORSE_ALERT_EMAIL="",
+    HORSE_SMTP_HOST="",
+)
 
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
+import torch  # noqa: E402
 from PIL import Image  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_init():
+    """Seed torch per test: head init is random, and the core-loop tests
+    assert on score movements that an unlucky init can leave just under
+    their margins (flaky ~1 run in 3 before this)."""
+    torch.manual_seed(0)
+    np.random.seed(0)
+
 
 # Greenish = "horse" anchors, reddish = "not horse" anchors.
 HORSE_COLORS = [(10, 200, 10), (20, 180, 40), (30, 160, 25)]
@@ -76,6 +97,7 @@ def app(tmp_path):
             "SECRET_KEY": "test-secret-" + "0" * 32,
             "DB_PATH": str(tmp_path / "app.db"),
             "UPLOAD_DIR": str(tmp_path / "uploads"),
+            "QUARANTINE_DIR": str(tmp_path / "quarantine"),
             "HEAD_PATH": str(tmp_path / "head.pt"),
             "TRAINING_DB": str(tmp_path / "ratings.db"),
             "ANCHOR_CACHE": str(anchor_cache),
@@ -98,6 +120,16 @@ def app(tmp_path):
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+@pytest.fixture
+def fixed_score(monkeypatch):
+    """Stub the head so every upload scores `fixed_score["value"]`."""
+    from server.services import model
+
+    state = {"value": 4.0}
+    monkeypatch.setattr(model, "score_embedding", lambda _e: state["value"])
+    return state
 
 
 def register(client, username: str) -> str:

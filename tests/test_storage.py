@@ -86,7 +86,7 @@ def test_ingest_without_app_db_is_a_no_op(tmp_path):
     assert ingest(tmp_path / "missing.db", tmp_path / "r.db") == {"ratings_synced": 0, "images": 0}
 
 
-def test_ingest_reflects_app_rerating(app, client):
+def test_ingest_reflects_app_rerating(app, client, fixed_score):
     from horse.ingest import ingest
     from server.db import get_db
 
@@ -119,7 +119,7 @@ def _insert_image(app, image_id: str, embedding_blob: bytes) -> None:
         db.commit()
 
 
-def test_ingest_skips_malformed_embeddings_and_does_not_count_them(app, client):
+def test_ingest_skips_malformed_embeddings_and_does_not_count_them(app, client, fixed_score):
     from horse.ingest import ingest
 
     alice = register(client, "alice")

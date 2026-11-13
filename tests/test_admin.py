@@ -23,7 +23,7 @@ def cli(app, monkeypatch):
 
 
 @pytest.fixture
-def posted(app, client):
+def posted(app, client, fixed_score):
     """bob posts an image, alice and bob rate it, alice posts one too;
     ratings synced into the training store."""
     bob = register(client, "bob")
@@ -41,6 +41,14 @@ def training_ratings(app) -> list[tuple[str, str]]:
     conn = connect_training_db(app.config["TRAINING_DB"])
     try:
         return sorted(conn.execute("SELECT image_id, user_id FROM ratings").fetchall())
+    finally:
+        conn.close()
+
+
+def training_augments(app) -> set[str]:
+    conn = connect_training_db(app.config["TRAINING_DB"])
+    try:
+        return {row[0] for row in conn.execute("SELECT image_id FROM augments").fetchall()}
     finally:
         conn.close()
 
@@ -63,8 +71,10 @@ def test_delete_post_by_url_removes_row_ratings_file_and_training_rows(app, clie
 
     assert count(app, "SELECT COUNT(*) FROM images WHERE id = ?", image) == 0
     assert count(app, "SELECT COUNT(*) FROM ratings WHERE image_id = ?", image) == 0
+    assert count(app, "SELECT COUNT(*) FROM image_augments WHERE image_id = ?", image) == 0
     assert not os.path.exists(path)
     assert all(img != image for img, _ in training_ratings(app))
+    assert image not in training_augments(app)
     assert client.get(f"/api/images/{image}/file").status_code == 404
     assert image not in [i["id"] for i in client.get("/api/feed").get_json()["items"]]
     # A re-sync doesn't bring it back.

@@ -14,6 +14,11 @@ Two tables:
                     ``sum_i w(t_i) * L_rating``).
 - ``embeddings`` -- (image_id, embedding), the image's CLIP embedding stored
                     once so training never has to re-run CLIP.
+- ``augments``   -- (image_id, angle, embedding), the embeddings of the same
+                    image at the other upload-time rotations. Each vote on an
+                    image also trains the head on these, at a lower weight
+                    (train.py ``augment_weight``), so a vote is several
+                    training points instead of one.
 
 This is the *training* store. The web app keeps its own per-user ratings in
 server/data/app.db; horse.ingest copies them here.
@@ -40,6 +45,12 @@ CREATE TABLE IF NOT EXISTS ratings (
 CREATE TABLE IF NOT EXISTS embeddings (
     image_id  TEXT PRIMARY KEY,
     embedding BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS augments (
+    image_id  TEXT NOT NULL,
+    angle     INTEGER NOT NULL,
+    embedding BLOB NOT NULL,
+    PRIMARY KEY (image_id, angle)
 );
 """
 
@@ -106,6 +117,27 @@ def add_rating(
         (str(image_id), embedding.astype(np.float32).tobytes()),
     )
     conn.commit()
+
+
+def add_augment(conn: sqlite3.Connection, image_id: str, angle: int, embedding: np.ndarray) -> None:
+    """Store one augmentation of an image: the embedding of the same picture
+    rotated `angle` degrees from how it's stored. Training treats each vote
+    on the image as a (down-weighted) vote on every augmentation too."""
+    if embedding.shape != (EMBEDDING_DIM,):
+        raise ValueError(f"expected embedding shape ({EMBEDDING_DIM},), got {embedding.shape}")
+    conn.execute(
+        "INSERT OR REPLACE INTO augments (image_id, angle, embedding) VALUES (?, ?, ?)",
+        (str(image_id), int(angle), embedding.astype(np.float32).tobytes()),
+    )
+    conn.commit()
+
+
+def all_augments(conn: sqlite3.Connection) -> dict[str, list[np.ndarray]]:
+    """image_id -> its augmentation embeddings."""
+    out: dict[str, list[np.ndarray]] = {}
+    for image_id, blob in conn.execute("SELECT image_id, embedding FROM augments").fetchall():
+        out.setdefault(image_id, []).append(np.frombuffer(blob, dtype=np.float32))
+    return out
 
 
 def all_ratings(conn: sqlite3.Connection) -> list[tuple[str, np.ndarray, float, float]]:

@@ -59,6 +59,7 @@
 			<p class="byline">
 				{#if kind === 'ranked'}<b>#{i + 1}</b> &nbsp;&middot;&nbsp;{/if}
 				<b>{item.owner}</b> &nbsp;&middot;&nbsp; {timeAgo(item.created_at)}
+				&nbsp;&middot;&nbsp; <a href={`/report?post=${item.id}`}>report</a>
 			</p>
 			{#if kind === 'new'}
 				<RateWidget

@@ -217,6 +217,10 @@ def test_core_loop(app, client):
     assert row["passed"] == 1, "admission is point-in-time, not re-evaluated"
 
     # 5. time passes, nobody re-rates -> stale ratings fade, anchor pulls back.
+    # Only because this fixture's LAMBDA_DECAY (0.01) takes the platform's
+    # total vote weight under COMMUNITY_WEIGHT_FLOOR: a weighted mean is
+    # unchanged by uniform ageing, so at the shipped half-life (~350 days)
+    # nothing fades back for years. See horse/train.py's docstring.
     with app.app_context():
         db = get_db()
         db.execute("UPDATE ratings SET created_at = ?", (time.time() - 400 * 86400,))
@@ -233,6 +237,9 @@ def test_feed_still_serves_drifted_image(app, client):
     """An image whose score fell below the gate threshold stays in the feed."""
     from server.services.retrain import run_retrain
 
+    # One full refit, not a prox-limited nudge: this test is about the feed,
+    # and needs the score to actually cross the threshold in one cycle.
+    app.config["RETRAIN_PROX_WEIGHT"] = 0.0
     with app.app_context():
         run_retrain()
     uploader = register(client, "owner")
@@ -249,9 +256,9 @@ def test_feed_still_serves_drifted_image(app, client):
     assert any(item["id"] == image_id for item in feed["items"])
 
 
-def test_ingest_idempotent(app, client):
+def test_ingest_idempotent(app, client, fixed_score):
     from horse.ingest import ingest
-    from horse.storage import all_ratings, connect
+    from horse.storage import all_augments, all_ratings, connect
 
     alice = register(client, "alice")
     bob = register(client, "bob")
@@ -267,6 +274,10 @@ def test_ingest_idempotent(app, client):
     conn = connect(app.config["TRAINING_DB"])
     try:
         assert len(all_ratings(conn)) == 2
+        augments = all_augments(conn)
+        assert set(augments) == {image_id} and len(augments[image_id]) == 3, (
+            "the rated image's three other rotations come across as augmentations"
+        )
     finally:
         conn.close()
 

@@ -18,8 +18,9 @@
 	}));
 
 	const posts = $derived(mine.data?.items ?? []);
-	const up = $derived(posts.filter((p) => p.passed));
+	const up = $derived(posts.filter((p) => p.image_url));
 	const rejected = $derived(posts.filter((p) => !p.passed));
+	const removed = $derived(posts.filter((p) => p.passed && p.removed));
 </script>
 
 {#if auth.user}
@@ -53,6 +54,20 @@
 				</p>
 			</article>
 		{/each}
+
+		{#if removed.length > 0}
+			<hr />
+			<p class="note">these were taken down:</p>
+			<ul class="plain-list">
+				{#each removed as item (item.id)}
+					<li>
+						a picture you posted &nbsp;&middot;&nbsp; {timeAgo(item.created_at)}
+						&nbsp;&middot;&nbsp;
+						<a href={`/report?post=${item.id}&appeal=1`}>think that's wrong?</a>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 
 		{#if rejected.length > 0}
 			<hr />

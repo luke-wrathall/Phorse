@@ -201,6 +201,9 @@ label {
 	display: block;
 	margin: 0.8rem 0 0.2rem;
 }
+select,
+textarea,
+input[type='email'],
 input[type='text'],
 input[type='password'] {
 	font: inherit;

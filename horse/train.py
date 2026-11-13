@@ -25,6 +25,14 @@ numerator and denominator, not one pair per image. So:
 - The prox term pulls toward the previous cycle's head, so each retrain
   nudges rather than refits. It is a speed limit, not a cap: repeated
   cycles converge to the same fixed point, just gradually.
+- Decay only re-weights votes against each other. Uniform ageing leaves a
+  weighted mean unchanged, so a quiet platform does NOT drift back toward
+  the anchors until its total vote weight falls under the floor -- years,
+  at the shipped half-life. Forgetting is relative to other activity.
+- Each vote is also applied, at `augment_weight`, to the image's stored
+  augmentations (its other rotations from upload time): more training
+  points per vote, so votes have a better chance of reaching similar
+  images instead of being memorized one by one.
 
 This is the "one unified head, no separate gate/rating models" mechanism
 decided in CLAUDE.md: gate.py and score.py both read the checkpoint this
@@ -47,7 +55,7 @@ import torch
 
 from horse.anchors import DEFAULT_CACHE_PATH, load_or_build_anchor_set
 from horse.model import DEFAULT_HIDDEN_DIM, HorseHead
-from horse.storage import all_ratings, connect
+from horse.storage import all_augments, all_ratings, connect
 
 DEFAULT_RATINGS_DB = "horse/data/ratings.db"
 DEFAULT_HEAD_OUT = "horse/data/head.pt"
@@ -77,6 +85,11 @@ DEFAULT_LR = 1e-3
 # 2026-10-11), so lambda_decay barely matters. 0 disables; ignored when not
 # warm-starting. The retrain loop sets it via config.RETRAIN_PROX_WEIGHT (1.0).
 DEFAULT_PROX_WEIGHT = 0.0
+# Each vote also trains the head on the image's stored augmentations (its
+# other upload-time rotations, storage.py `augments`) at this fraction of
+# the vote's weight. 0 = the rated image only. A guess, not tuned yet:
+# compare settings with `python -m horse.tune --augment-weight 0.25,0,1`.
+DEFAULT_AUGMENT_WEIGHT = 0.25
 
 SECONDS_PER_DAY = 86400.0
 
@@ -173,21 +186,45 @@ def train_head(
     return head, summary
 
 
-def load_ratings(db_path: str, embedding_dim: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Returns (embeddings, ratings, timestamps), each possibly empty."""
+def load_ratings(
+    db_path: str, embedding_dim: int, augment_weight: float = 0.0
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Training examples from the store: (embeddings, ratings, timestamps,
+    multipliers), each possibly empty.
+
+    One example per vote on the image itself (multiplier 1), plus -- when
+    `augment_weight` > 0 -- one per stored augmentation of that image (the
+    same picture at another rotation), carrying the same rating and
+    timestamp with multiplier `augment_weight`. The multiplier scales the
+    vote's recency weight, so an augmentation counts as a fraction of a
+    vote in both the numerator and the pooled denominator.
+    """
     conn = connect(db_path)
     records = all_ratings(conn)
+    augments = all_augments(conn) if augment_weight > 0 else {}
     conn.close()
-    if not records:
+    embeddings, ratings, timestamps, multipliers = [], [], [], []
+    for image_id, embedding, rating, timestamp in records:
+        for vec, mult in [(embedding, 1.0)] + [(a, augment_weight) for a in augments.get(image_id, [])]:
+            if vec.shape != (embedding_dim,):
+                continue
+            embeddings.append(vec)
+            ratings.append(rating)
+            timestamps.append(timestamp)
+            multipliers.append(mult)
+    if not embeddings:
         return (
             np.zeros((0, embedding_dim), dtype=np.float32),
             np.zeros((0,), dtype=np.float32),
             np.zeros((0,), dtype=np.float64),
+            np.zeros((0,), dtype=np.float32),
         )
-    embeddings = np.stack([r[1] for r in records]).astype(np.float32)
-    ratings = np.array([r[2] for r in records], dtype=np.float32)
-    timestamps = np.array([r[3] for r in records], dtype=np.float64)
-    return embeddings, ratings, timestamps
+    return (
+        np.stack(embeddings).astype(np.float32),
+        np.array(ratings, dtype=np.float32),
+        np.array(timestamps, dtype=np.float64),
+        np.array(multipliers, dtype=np.float32),
+    )
 
 
 def train_from_store(
@@ -205,6 +242,7 @@ def train_from_store(
     log_every: int | None = None,
     hidden_dim: int = DEFAULT_HIDDEN_DIM,
     fresh_epochs: int = DEFAULT_FRESH_EPOCHS,
+    augment_weight: float = DEFAULT_AUGMENT_WEIGHT,
 ) -> dict:
     """One retrain cycle from the databases: anchors + ratings -> new head.pt.
 
@@ -218,9 +256,11 @@ def train_from_store(
     anchor_set = load_or_build_anchor_set(cache_path=anchor_cache)
     embedding_dim = anchor_set.embeddings.shape[1]
 
-    rating_embeddings, rating_targets, timestamps = load_ratings(ratings_db, embedding_dim)
+    rating_embeddings, rating_targets, timestamps, multipliers = load_ratings(
+        ratings_db, embedding_dim, augment_weight
+    )
     rating_weights = (
-        recency_weights(timestamps, lambda_decay)
+        recency_weights(timestamps, lambda_decay) * multipliers
         if len(timestamps)
         else timestamps.astype(np.float32)
     )
@@ -251,7 +291,9 @@ def train_from_store(
     os.replace(tmp_out, head_out)
 
     summary.update(
-        {"n_ratings": int(len(rating_targets)), "n_anchors": int(len(anchor_set.ids)),
+        {"n_ratings": int(np.sum(multipliers == 1.0)),
+         "n_augmented": int(np.sum(multipliers != 1.0)),
+         "n_anchors": int(len(anchor_set.ids)),
          "head_out": head_out, "fresh": head is None}
     )
     return summary
@@ -274,6 +316,9 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=DEFAULT_LR)
     parser.add_argument("--prox-weight", type=float, default=DEFAULT_PROX_WEIGHT,
                         help="Pull toward the --head-in weights (0 disables).")
+    parser.add_argument("--augment-weight", type=float, default=DEFAULT_AUGMENT_WEIGHT,
+                        help="Weight of each stored rotation of a rated image, as a fraction "
+                             "of the vote (0 = rated image only).")
     parser.add_argument("--log-every", type=int, default=50, help="Print loss every N epochs (0 to silence).")
     parser.add_argument("--rebuild-anchors", action="store_true", help="Force re-embedding the anchor set.")
     args = parser.parse_args()
@@ -294,10 +339,12 @@ def main() -> None:
         hidden_dim=args.hidden_dim,
         lr=args.lr,
         prox_weight=args.prox_weight,
+        augment_weight=args.augment_weight,
         log_every=args.log_every or None,
     )
     print(
-        f"[train] {summary['n_ratings']} community ratings, {summary['n_anchors']} anchors "
+        f"[train] {summary['n_ratings']} community ratings (+{summary['n_augmented']} augmented), "
+        f"{summary['n_anchors']} anchors "
         f"(lambda_anchor={args.lambda_anchor}, lambda_decay={args.lambda_decay}) "
         f"-> {args.head_out}  [anchor={summary['anchor_loss']:.4f} "
         f"community={summary['community_loss']:.4f}]"

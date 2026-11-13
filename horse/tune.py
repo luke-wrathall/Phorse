@@ -46,7 +46,13 @@ import torch
 from horse.anchors import DEFAULT_CACHE_PATH, AnchorSet
 from horse.embed import EMBEDDING_DIM
 from horse.model import HorseHead
-from horse.train import DEFAULT_COMMUNITY_WEIGHT_FLOOR, DEFAULT_EPOCHS, recency_weights, train_head
+from horse.train import (
+    DEFAULT_AUGMENT_WEIGHT,
+    DEFAULT_COMMUNITY_WEIGHT_FLOOR,
+    DEFAULT_EPOCHS,
+    recency_weights,
+    train_head,
+)
 
 GATE_THRESHOLD = 2.5
 
@@ -62,6 +68,8 @@ class Snapshot:
     vote_user: np.ndarray      # (n_votes,)
     vote_value: np.ndarray     # (n_votes,) float32
     vote_time: np.ndarray      # (n_votes,) unix seconds
+    aug_image: np.ndarray      # (n_augments,) index into image_ids
+    aug_emb: np.ndarray        # (n_augments, 512): the image at another rotation
 
 
 def load_snapshot(app_db: Path) -> Snapshot:
@@ -77,6 +85,13 @@ def load_snapshot(app_db: Path) -> Snapshot:
         v for v in conn.execute("SELECT image_id, user_id, rating, created_at FROM ratings").fetchall()
         if v[0] in index
     ]
+    try:
+        augments = [
+            a for a in conn.execute("SELECT image_id, embedding FROM image_augments").fetchall()
+            if a[0] in index and a[1] and len(a[1]) == EMBEDDING_DIM * 4
+        ]
+    except sqlite3.OperationalError:  # a snapshot from before image_augments existed
+        augments = []
     conn.close()
     return Snapshot(
         image_ids=[r[0] for r in rows],
@@ -89,6 +104,33 @@ def load_snapshot(app_db: Path) -> Snapshot:
         vote_user=np.array([v[1] for v in votes], dtype=np.int64),
         vote_value=np.array([v[2] for v in votes], dtype=np.float32),
         vote_time=np.array([v[3] for v in votes], dtype=np.float64),
+        aug_image=np.array([index[a[0]] for a in augments], dtype=np.int64),
+        aug_emb=np.stack([np.frombuffer(a[1], dtype=np.float32) for a in augments])
+        if augments else np.zeros((0, EMBEDDING_DIM), np.float32),
+    )
+
+
+def training_examples(snap: Snapshot) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """What the live loop trains on, one row per (vote, embedding): the rated
+    image itself and each of its stored augmentations. Returns (vote index,
+    embedding, is-augmentation) per row; the augmentation rows get the
+    vote's value and recency weight times the augment weight."""
+    by_image: dict[int, list[int]] = {}
+    for a, image in enumerate(snap.aug_image.tolist()):
+        by_image.setdefault(image, []).append(a)
+    vote_of, emb, is_aug = [], [], []
+    for v, image in enumerate(snap.vote_image.tolist()):
+        vote_of.append(v)
+        emb.append(snap.embeddings[image])
+        is_aug.append(False)
+        for a in by_image.get(image, []):
+            vote_of.append(v)
+            emb.append(snap.aug_emb[a])
+            is_aug.append(True)
+    return (
+        np.array(vote_of, dtype=np.int64),
+        np.stack(emb) if emb else np.zeros((0, EMBEDDING_DIM), np.float32),
+        np.array(is_aug, dtype=bool),
     )
 
 
@@ -219,22 +261,27 @@ def print_now(snap: Snapshot, head: HorseHead, means, counts) -> None:
 _W: dict = {}
 
 
-def _init_worker(anchors: AnchorSet, base_states: dict, emb, values, threads: int) -> None:
+def _init_worker(anchors: AnchorSet, base_states: dict, examples: tuple, values, threads: int) -> None:
     torch.set_num_threads(threads)
     bases = {}
     for hidden_dim, state in base_states.items():
         bases[hidden_dim] = HorseHead(hidden_dim=hidden_dim)
         bases[hidden_dim].load_state_dict(state)
-    _W.update(anchors=anchors, bases=bases, emb=emb, values=values)
+    vote_of, emb, is_aug = examples
+    _W.update(anchors=anchors, bases=bases, vote_of=vote_of, emb=emb, is_aug=is_aug, values=values)
 
 
-def _run_job(hidden_dim: int, keep: np.ndarray, weights: np.ndarray, knobs: dict, score_on: np.ndarray):
-    """One run of the loop on the votes in `keep`; at each checkpoint, the
-    scores of `score_on` and of the anchors."""
+def _run_job(hidden_dim: int, keep: np.ndarray, weights: np.ndarray, augment_weight: float,
+             knobs: dict, score_on: np.ndarray):
+    """One run of the loop on the votes in `keep` (a mask over votes); at
+    each checkpoint, the scores of `score_on` and of the anchors."""
     anchors = _W["anchors"]
+    vote_of, is_aug = _W["vote_of"], _W["is_aug"]
+    rows = keep[vote_of] & (~is_aug | (augment_weight > 0))
+    w = weights[vote_of] * np.where(is_aug, augment_weight, 1.0).astype(np.float32)
     out = {}
-    for c, h in run_cycles(_W["bases"][hidden_dim], anchors, _W["emb"][keep], _W["values"][keep],
-                           weights[keep], **knobs):
+    for c, h in run_cycles(_W["bases"][hidden_dim], anchors, _W["emb"][rows],
+                           _W["values"][vote_of][rows], w[rows], **knobs):
         out[c] = (score(h, score_on), score(h, anchors.embeddings))
     return out
 
@@ -286,13 +333,13 @@ def print_sweep(snap: Snapshot, anchors: AnchorSet, weights, means, counts, args
     folds = folds if len(folds) > 1 else []
 
     grid = knob_grid([floats(args.lambda_decay), floats(args.lambda_anchor), floats(args.prox),
-                      [int(h) for h in floats(args.hidden)]], args.grid)
+                      [int(h) for h in floats(args.hidden)], floats(args.augment_weight)], args.grid)
     bases = {h: anchors_only_head(anchors, h, args.base_epochs) for h in sorted({g[3] for g in grid})}
     base_scores = {h: score(b, snap.embeddings) for h, b in bases.items()}
     every_vote = np.ones(len(snap.vote_value), dtype=bool)
     workers = args.workers or max(1, (os.cpu_count() or 2) // 2)
-    initargs = (anchors, {h: b.state_dict() for h, b in bases.items()},
-                snap.embeddings[snap.vote_image], snap.vote_value, 2)
+    examples = training_examples(snap)
+    initargs = (anchors, {h: b.state_dict() for h, b in bases.items()}, examples, snap.vote_value, 2)
     if workers == 1:
         _init_worker(*initargs)
         pool = _InProcess()
@@ -301,21 +348,24 @@ def print_sweep(snap: Snapshot, anchors: AnchorSet, weights, means, counts, args
     jobs = {}
     with pool:
         for config in grid:
-            d, a, p, h = config
+            d, a, p, h, aw = config
             w = recency_weights(snap.vote_time, d)
             knobs = dict(cycles=cycles, lambda_anchor=a, prox_weight=p, floor=args.floor, epochs=args.epochs)
-            jobs[config, None] = pool.submit(_run_job, h, every_vote, w, knobs, snap.embeddings)
+            jobs[config, None] = pool.submit(_run_job, h, every_vote, w, aw, knobs, snap.embeddings)
             for f, fold in enumerate(folds):
-                jobs[config, f] = pool.submit(_run_job, h, ~np.isin(snap.vote_image, fold), w, knobs,
+                jobs[config, f] = pool.submit(_run_job, h, ~np.isin(snap.vote_image, fold), w, aw, knobs,
                                               snap.embeddings[fold])
+        n_aug = int(examples[2].sum())
         print(f"\n== knob sweep, from a fresh anchors-only head ({args.base_epochs} epochs), then "
               f"{args.epochs} epochs/cycle; {len(folds)}-fold held-out over images; "
+              f"{n_aug} augmentation rows ({len(snap.aug_emb)} stored rotations); "
               f"{len(jobs)} runs on {workers} processes. Cycle 0 is the starting head.")
-        print(f"{'hidden':>6} {'anchor':>6} {'prox':>5} {'decay':>6} {'cycle':>5} | {'fit':>5} {'held-out':>8} | "
+        print(f"{'hidden':>6} {'anchor':>6} {'prox':>5} {'decay':>6} {'aug':>5} {'cycle':>5} | "
+              f"{'fit':>5} {'held-out':>8} | "
               f"{'horse ok':>8} {'not ok':>6} {'worst anchor style':>28} | {'unrated shift':>13} {'flips':>5}")
 
         for config in grid:
-            d, a, p, h = config
+            d, a, p, h, aw = config
             m, _ = image_means(snap, recency_weights(snap.vote_time, d))
             full = jobs[config, None].result()
             held = {c: np.full(len(snap.image_ids), np.nan) for c in cycles}
@@ -331,7 +381,7 @@ def print_sweep(snap: Snapshot, anchors: AnchorSet, weights, means, counts, args
                 flips = int(np.sum((s[unrated] >= GATE_THRESHOLD) != (start >= GATE_THRESHOLD)))
                 shift = np.mean(np.abs(s[unrated] - start)) if len(unrated) else float("nan")
                 held_rms = rms(m[rated_images], held[c][rated_images]) if folds else float("nan")
-                print(f"{h:>6} {a:>6g} {p:>5g} {d:>6g} {c:>5} | "
+                print(f"{h:>6} {a:>6g} {p:>5g} {d:>6g} {aw:>5g} {c:>5} | "
                       f"{rms(m[rated_images], s[rated_images]):>5.2f} {held_rms:>8.2f} | "
                       f"{100 * passes[horse_anchor].mean():>7.0f}% {100 * (~passes[~horse_anchor]).mean():>5.0f}% "
                       f"{worst[:21]:>21} {100 * ok[worst]:>5.0f}% | {shift:>13.2f} {flips:>5}", flush=True)
@@ -356,6 +406,9 @@ def main() -> None:
     parser.add_argument("--lambda-decay", default="0.002", help="Per day; first is the baseline.")
     parser.add_argument("--hidden", default="8,64,16,0",
                         help="Head sizes (hidden units, 0 = linear); first is the baseline.")
+    parser.add_argument("--augment-weight", default=str(DEFAULT_AUGMENT_WEIGHT),
+                        help="Weight of each stored rotation of a rated image as a fraction of "
+                             "the vote (0 = off); comma list, first is the baseline.")
     parser.add_argument("--base-epochs", type=int, default=3000,
                         help="Epochs for each size's anchors-only starting head.")
     parser.add_argument("--grid", action="store_true", help="Every combination, not one knob at a time.")

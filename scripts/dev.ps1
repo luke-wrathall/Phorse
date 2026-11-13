@@ -8,6 +8,8 @@ Push-Location $root
 try {
     # Local dev: no invite needed -- sign up at /join/<anything>.
     if (-not $env:HORSE_REQUIRE_INVITE) { $env:HORSE_REQUIRE_INVITE = '0' }
+    # Local dev: no OpenAI key needed.
+    if (-not $env:HORSE_MODERATION) { $env:HORSE_MODERATION = 'off' }
 
     Write-Host 'starting API on http://127.0.0.1:8000 ...' -ForegroundColor Cyan
     $api = Start-Process python -ArgumentList '-m', 'server.wsgi' -PassThru -NoNewWindow

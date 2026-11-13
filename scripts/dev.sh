@@ -8,6 +8,8 @@ trap 'kill 0' EXIT
 
 # Local dev: no invite needed -- sign up at /join/<anything>.
 export HORSE_REQUIRE_INVITE="${HORSE_REQUIRE_INVITE:-0}"
+# Local dev: no OpenAI key needed.
+export HORSE_MODERATION="${HORSE_MODERATION:-off}"
 
 echo "starting API on http://127.0.0.1:8000 ..."
 python -m server.wsgi &

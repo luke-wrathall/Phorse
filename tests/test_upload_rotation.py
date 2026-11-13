@@ -53,15 +53,19 @@ def test_sideways_upload_is_rotated_and_saved_upright(app, client, tall_scores):
     "wide, tall, why",
     [
         (3.0, 4.5, "upright already passes -- rotation not needed"),
-        (0.5, 2.0, "no rotation passes -- store as sent"),
+        (0.5, 2.0, "no rotation passes -- rejected as sent"),
         (2.2, 2.6, "rotation passes but beats upright by less than the 0.5 margin"),
     ],
 )
 def test_rotation_only_used_when_it_rescues(app, client, tall_scores, wide, tall, why):
+    """Rejected uploads aren't stored, so only the passing case has a file."""
     tall_scores.update(wide=wide, tall=tall)
     token = register(client, "photographer")
 
     result = upload_png(client, token, solid_png((10, 10, 10), size=(40, 20)))
 
     assert result["score"] == pytest.approx(wide), why
-    assert _stored_size(app, result["id"]) == (40, 20), why
+    if result["passed"]:
+        assert _stored_size(app, result["id"]) == (40, 20), why
+    else:
+        assert not list(Path(app.config["UPLOAD_DIR"]).glob(f"{result['id']}.*")), why

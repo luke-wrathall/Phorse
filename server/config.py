@@ -35,6 +35,35 @@ class Config:
     # horse/data/ratings.db (the training store) -- see server/README.md.
     DB_PATH = os.environ.get("HORSE_APP_DB", "server/data/app.db")
     UPLOAD_DIR = os.environ.get("HORSE_UPLOAD_DIR", "server/data/uploads")
+    # Suspected illegal images (`admin quarantine`): never served, and not in
+    # the nightly backups.
+    QUARANTINE_DIR = os.environ.get("HORSE_QUARANTINE_DIR", "server/data/quarantine")
+
+    # Automated content check on uploads that pass the gate (services/safety.py).
+    # On unless turned off, and uploads are refused if it can't run, so a
+    # deploy can't go unchecked by forgetting the key. scripts/dev.* turn it off.
+    MODERATION_PROVIDER = os.environ.get("HORSE_MODERATION", "openai")
+    OPENAI_API_KEY = os.environ.get("HORSE_OPENAI_API_KEY", "")
+
+    # Flood limits (services/limits.py). 0 = no limit. Rejected uploads count:
+    # each one still costs four CLIP embeds. The IP limits are looser because
+    # a whole college or mobile network can share one address.
+    UPLOADS_PER_USER_DAY = int(os.environ.get("HORSE_UPLOADS_PER_USER_DAY", "30"))
+    UPLOADS_PER_IP_DAY = int(os.environ.get("HORSE_UPLOADS_PER_IP_DAY", "100"))
+    SIGNUPS_PER_IP_HOUR = int(os.environ.get("HORSE_SIGNUPS_PER_IP_HOUR", "20"))
+    REPORTS_PER_REPORTER_DAY = int(os.environ.get("HORSE_REPORTS_PER_REPORTER_DAY", "20"))
+    # This many uploads refused by the content check stops a user uploading for a day.
+    UPLOAD_BLOCKS_PER_USER_DAY = int(os.environ.get("HORSE_UPLOAD_BLOCKS_PER_USER_DAY", "3"))
+    # Different people reporting a post before it hides itself (services/reports.py).
+    REPORT_AUTOHIDE = int(os.environ.get("HORSE_REPORT_AUTOHIDE", "3"))
+
+    # Alert emails to the operator (services/alerts.py). Off until these are
+    # set. Port 587 with STARTTLS: Hetzner blocks 25 and 465 by default.
+    ALERT_EMAIL = os.environ.get("HORSE_ALERT_EMAIL", "")
+    SMTP_HOST = os.environ.get("HORSE_SMTP_HOST", "")
+    SMTP_PORT = int(os.environ.get("HORSE_SMTP_PORT", "587"))
+    SMTP_USER = os.environ.get("HORSE_SMTP_USER", "")
+    SMTP_PASSWORD = os.environ.get("HORSE_SMTP_PASSWORD", "")
 
     # Stage 2 head checkpoint + gate threshold (mirrors horse.gate defaults).
     HEAD_PATH = os.environ.get("HORSE_HEAD_PATH", "horse/data/head.pt")
@@ -63,6 +92,10 @@ class Config:
     # memorize single images, so votes move the score of similar images too
     # (see horse.tune). Changing it makes the next cycle start a fresh head.
     HEAD_HIDDEN = int(os.environ.get("HORSE_HEAD_HIDDEN", "8"))
+    # Each vote also trains the head on the image's other upload-time
+    # rotations (image_augments) at this fraction of the vote's weight; 0 =
+    # the rated image only. Not tuned yet: see `python -m horse.tune`.
+    AUGMENT_WEIGHT = float(os.environ.get("HORSE_AUGMENT_WEIGHT", "0.25"))
 
     # Two feeds (services/feed.py): "new" (the front page) is the horses you
     # haven't rated yet, ranked by FEED_STRATEGY; "ranked" (/ranked) is

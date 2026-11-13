@@ -13,15 +13,17 @@ export type FeedItem = {
 
 export type FeedPage = { items: FeedItem[]; next_offset: number | null };
 
-/** One of the caller's own uploads (GET /api/images/mine) — includes rejected ones. */
+/** One of the caller's own uploads (GET /api/images/mine) — includes rejected and removed ones. */
 export type MyImage = {
 	id: string;
 	caption: string | null;
 	passed: boolean;
+	removed: boolean;
 	created_at: number;
 	rating_count: number;
 	rating_mean: number | null;
-	image_url: string;
+	/** Null when there's nothing to show: rejected at the gate, or taken down. */
+	image_url: string | null;
 };
 
 /** GET /api/images/limits — the server's upload caps, for a pre-check before sending. */

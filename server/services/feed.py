@@ -191,7 +191,7 @@ def get_feed(
         SELECT i.id, i.score, i.caption, i.created_at, u.username AS owner
         FROM images i
         JOIN users u ON u.id = i.owner_id
-        WHERE i.passed = 1
+        WHERE i.passed = 1 AND i.hidden_at IS NULL
         """
     ).fetchall()
 

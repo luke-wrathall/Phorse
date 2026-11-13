@@ -23,7 +23,7 @@ from ..security import (
     require_auth,
     verify_password,
 )
-from ..services import invites
+from ..services import invites, limits
 
 bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
@@ -44,13 +44,23 @@ def register():
             f"username must be {MIN_USERNAME}+ chars and password {MIN_PASSWORD}+ chars"
         )
 
+    db = get_db()
+    limits.require_open(db, "signups")
+    limits.hit(
+        db,
+        "signup",
+        limits.client_key(limits.client_ip()),
+        current_app.config["SIGNUPS_PER_IP_HOUR"],
+        limits.HOUR,
+        "too many new accounts from here, try again in an hour",
+    )
+
     invite = None
     if current_app.config["REQUIRE_INVITE"]:
         invite = invites.normalize((request.get_json(silent=True) or {}).get("invite"))
         if not invite:
             raise ApiError("you need an invite code to make an account", 403)
 
-    db = get_db()
     try:
         if invite:
             invites.claim(db, invite)

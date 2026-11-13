@@ -31,7 +31,12 @@ def rate(image_id: str):
         raise ApiError("rating must be between 0 and 5")
 
     db = get_db()
-    if db.execute("SELECT 1 FROM images WHERE id = ?", (image_id,)).fetchone() is None:
+    # Only what's showing can be voted on. A vote on a rejected upload would
+    # also let its uploader train the head toward letting it in.
+    showing = db.execute(
+        "SELECT 1 FROM images WHERE id = ? AND passed = 1 AND hidden_at IS NULL", (image_id,)
+    ).fetchone()
+    if showing is None:
         raise ApiError("image not found", 404)
 
     db.execute(

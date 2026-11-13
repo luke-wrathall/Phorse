@@ -1,8 +1,11 @@
 """Lazy, process-wide singletons for the frozen CLIP encoder and the head.
 
-Loading CLIP is slow (seconds) and the head checkpoint should be read once,
-not per request -- same reasoning as webui/app.py's STATE dict, just scoped
-to the server package. First call to any function here triggers the load.
+Loading CLIP is slow (seconds, ~600 MB resident) and the head checkpoint
+should be read once, not per request. The two are loaded independently and
+only when first needed: `embed_image` needs CLIP, `score_embedding` only
+the head. That matters for the scheduler process, which re-scores every
+image from its cached embedding and never embeds anything -- it must not
+end up holding a second copy of CLIP next to the API's.
 
 If no trained checkpoint exists at config HEAD_PATH, an untrained (random)
 head is used and `head_loaded()` returns False so the API/UI can warn that
@@ -42,16 +45,20 @@ def _load_head(path: Path) -> None:
     """Set _state['head'] from `path` if it exists, else an untrained head.
 
     A failed load (e.g. a torch.save half-written by the scheduler process)
-    leaves the currently held head in place and retries on the next mtime tick.
+    leaves the currently held head in place and retries on the next mtime
+    tick; with no head held yet it falls back to an untrained one.
     """
     if path.exists():
         try:
             _state["head"] = HorseHead.load(path)
         except Exception:  # noqa: BLE001 -- transient partial read; keep the old head
+            if _state["head"] is not None:
+                return
+        else:
+            _state["head_loaded"] = True
+            _state["head_mtime"] = _head_mtime(path)
             return
-        _state["head_loaded"] = True
-        _state["head_mtime"] = _head_mtime(path)
-    elif _state["head"] is None:
+    if _state["head"] is None:
         head = HorseHead(hidden_dim=current_app.config.get("HEAD_HIDDEN", DEFAULT_HIDDEN_DIM))
         head.eval()
         _state["head"] = head
@@ -59,19 +66,32 @@ def _load_head(path: Path) -> None:
         _state["head_mtime"] = None
 
 
-def _ensure_loaded() -> dict:
+def _ensure_head() -> None:
+    if _state["head"] is None:
+        with _lock:
+            if _state["head"] is None:
+                _load_head(Path(current_app.config["HEAD_PATH"]))
+
+
+def _ensure_embedder():
     if _state["embedder"] is None:
         with _lock:
             if _state["embedder"] is None:
-                _load_head(Path(current_app.config["HEAD_PATH"]))
                 _state["embedder"] = get_embedder()
+    return _state["embedder"]
+
+
+def _ensure_loaded() -> dict:
+    """Load both the head and CLIP (the API's warm-up)."""
+    _ensure_head()
+    _ensure_embedder()
     return _state
 
 
 def warm_up(app) -> threading.Thread:
     """Load CLIP + the head in a background thread so the first upload
     doesn't pay the ~25s cold start. A request that arrives mid-load just
-    waits on `_lock` in `_ensure_loaded` rather than loading twice."""
+    waits on `_lock` rather than loading twice."""
 
     def _load() -> None:
         with app.app_context():
@@ -94,18 +114,17 @@ def _maybe_reload_head() -> None:
 
 def reload_head() -> bool:
     """Force a reload of the head checkpoint. Returns head_loaded()."""
-    _ensure_loaded()
     with _lock:
         _load_head(Path(current_app.config["HEAD_PATH"]))
     return _state["head_loaded"]
 
 
 def embed_image(image: Image.Image) -> np.ndarray:
-    return _ensure_loaded()["embedder"].embed_image(image)
+    return _ensure_embedder().embed_image(image)
 
 
 def score_embedding(embedding: np.ndarray) -> float:
-    _ensure_loaded()
+    _ensure_head()
     _maybe_reload_head()
     head = _state["head"]
     tensor = torch.from_numpy(np.array(embedding, dtype=np.float32))  # copy: frombuffer is read-only
@@ -114,4 +133,10 @@ def score_embedding(embedding: np.ndarray) -> float:
 
 
 def head_loaded() -> bool:
-    return _ensure_loaded()["head_loaded"]
+    _ensure_head()
+    return _state["head_loaded"]
+
+
+def embedder_loaded() -> bool:
+    """Whether this process holds a CLIP copy (the scheduler shouldn't)."""
+    return _state["embedder"] is not None

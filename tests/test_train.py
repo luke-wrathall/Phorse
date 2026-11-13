@@ -19,7 +19,7 @@ import torch
 
 from horse.embed import EMBEDDING_DIM
 from horse.model import HorseHead
-from horse.train import recency_weights, train_from_store, train_head
+from horse.train import DEFAULT_LAMBDA_ANCHOR, load_ratings, recency_weights, train_from_store, train_head
 
 DAY = 86400.0
 
@@ -169,7 +169,7 @@ def test_trains_on_anchors_alone_when_there_are_no_ratings(anchors):
     head, summary = train_head(*anchors, empty_x, empty, empty, epochs=300, head=_seeded_head())
 
     assert summary["community_loss"] == 0.0
-    assert summary["final_loss"] == pytest.approx(0.25 * summary["anchor_loss"], rel=1e-5)
+    assert summary["final_loss"] == pytest.approx(DEFAULT_LAMBDA_ANCHOR * summary["anchor_loss"], rel=1e-5)
     scores = _predict(head, anchors[0])
     assert scores[:3].min() > scores[3:].max(), f"horse anchors should outscore non-horse: {scores}"
 
@@ -241,6 +241,34 @@ def test_train_from_store_writes_head_atomically_and_reports_counts(tmp_path, an
     assert head_out.exists()
     assert not Path(f"{head_out}.tmp").exists(), "temp checkpoint should be renamed into place"
     HorseHead.load(head_out)  # loadable
+
+
+def test_augmentations_train_as_fractional_votes(tmp_path, anchor_cache):
+    """A stored rotation of a rated image becomes an extra training example
+    with the vote's rating and timestamp, weighted by augment_weight; at 0
+    it is left out entirely."""
+    from horse.storage import add_augment, add_rating, connect
+
+    ratings_db = tmp_path / "ratings.db"
+    conn = connect(ratings_db)
+    upright, sideways = _unit_vectors(2, seed=8)
+    add_rating(conn, "img", "alice", upright, 1.0, timestamp=123.0)
+    add_augment(conn, "img", 90, sideways)
+    add_augment(conn, "other", 90, sideways)  # unrated: never trained on
+    conn.close()
+
+    x, y, ts, mult = load_ratings(str(ratings_db), EMBEDDING_DIM, augment_weight=0.25)
+    np.testing.assert_array_equal(x, np.stack([upright, sideways]))
+    np.testing.assert_array_equal(y, [1.0, 1.0])
+    np.testing.assert_array_equal(ts, [123.0, 123.0])
+    np.testing.assert_array_equal(mult, [1.0, 0.25])
+
+    x0, _, _, mult0 = load_ratings(str(ratings_db), EMBEDDING_DIM, augment_weight=0.0)
+    assert x0.shape == (1, EMBEDDING_DIM) and list(mult0) == [1.0]
+
+    summary = train_from_store(str(ratings_db), str(anchor_cache), str(tmp_path / "head.pt"),
+                               epochs=5, augment_weight=0.25)
+    assert (summary["n_ratings"], summary["n_augmented"]) == (1, 1)
 
 
 def test_train_from_store_with_empty_store_trains_on_anchors(tmp_path, anchor_cache):

@@ -12,16 +12,6 @@ from PIL import Image
 from conftest import HORSE_COLORS, auth, register, solid_png, upload_png
 
 
-@pytest.fixture
-def fixed_score(monkeypatch):
-    """Stub the head so every upload scores `fixed_score["value"]`."""
-    from server.services import model
-
-    state = {"value": 4.0}
-    monkeypatch.setattr(model, "score_embedding", lambda _e: state["value"])
-    return state
-
-
 def _upload(client, token, png=None, name="img.png", caption=None):
     data = {"image": (io.BytesIO(png or solid_png(HORSE_COLORS[0])), name)}
     if caption is not None:
@@ -305,6 +295,48 @@ def test_file_is_served_with_lowercased_extension(app, client, fixed_score):
     assert resp.status_code == 200
     assert Image.open(io.BytesIO(resp.data)).size == (8, 8)
     resp.close()
+
+
+@pytest.mark.parametrize(
+    "name, ext, mimetype",
+    [
+        ("horse.exe", ".jpg", "image/jpeg"),  # used to crash: PIL can't save ".exe"
+        ("horse.pdf", ".jpg", "image/jpeg"),  # used to be stored and served as a PDF
+        ("horse", ".jpg", "image/jpeg"),
+        ("horse.JPEG", ".jpg", "image/jpeg"),
+        ("horse.webp", ".webp", "image/webp"),
+        ("horse.png", ".png", "image/png"),
+    ],
+)
+def test_stored_format_never_follows_the_uploaders_extension(app, client, fixed_score, name, ext, mimetype):
+    from pathlib import Path
+
+    token = register(client, "alice")
+    resp = _upload(client, token, name=name)
+    assert resp.status_code == 201, resp.get_json()
+    image_id = resp.get_json()["id"]
+
+    assert [p.suffix for p in Path(app.config["UPLOAD_DIR"]).glob(f"{image_id}.*")] == [ext]
+    served = client.get(f"/api/images/{image_id}/file")
+    assert served.status_code == 200 and served.mimetype == mimetype
+    assert Image.open(io.BytesIO(served.data)).size == (8, 8)
+    served.close()
+
+
+def test_upload_stores_the_other_three_rotations_for_training(app, client, fixed_score):
+    from server.db import get_db
+
+    token = register(client, "alice")
+    shown = _upload(client, token).get_json()["id"]
+    fixed_score["value"] = 0.0
+    rejected = _upload(client, token, png=solid_png(HORSE_COLORS[1])).get_json()["id"]
+
+    with app.app_context():
+        rows = get_db().execute(
+            "SELECT image_id, angle, length(embedding) FROM image_augments ORDER BY angle"
+        ).fetchall()
+    assert [tuple(r) for r in rows] == [(shown, 90, 2048), (shown, 180, 2048), (shown, 270, 2048)]
+    assert rejected not in {r[0] for r in rows}, "rejected uploads can't be rated, so none kept"
 
 
 def test_unknown_file_404s_as_json(client):

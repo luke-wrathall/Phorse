@@ -63,6 +63,26 @@ def make_token(user_id: int) -> str:
     return jwt.encode(payload, current_app.config["SECRET_KEY"], algorithm="HS256")
 
 
+REVIEW_LINK_SECONDS = 15 * 60
+
+
+def make_review_token(image_id: str) -> str:
+    """Lets the operator look at one hidden post (`admin review-link`). It
+    has no `sub`, so it can't be used as a login."""
+    payload = {"review": image_id, "exp": int(time.time()) + REVIEW_LINK_SECONDS}
+    return jwt.encode(payload, current_app.config["SECRET_KEY"], algorithm="HS256")
+
+
+def review_token_allows(token: str | None, image_id: str) -> bool:
+    if not token:
+        return False
+    try:
+        payload = jwt.decode(token, current_app.config["SECRET_KEY"], algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return False
+    return payload.get("review") == image_id
+
+
 def _decode_payload(token: str) -> tuple[int, int]:
     """(user id, issued-at) from a valid token, else 401."""
     try:

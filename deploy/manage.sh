@@ -6,6 +6,8 @@
 #   sudo bash /srv/phorse/deploy/manage.sh invites list
 #   sudo bash /srv/phorse/deploy/manage.sh admin posts
 #   sudo bash /srv/phorse/deploy/manage.sh admin ban someone --purge
+#   sudo bash /srv/phorse/deploy/manage.sh admin reports
+#   sudo bash /srv/phorse/deploy/manage.sh admin pause all
 #   sudo bash /srv/phorse/deploy/manage.sh retrain
 #   sudo bash /srv/phorse/deploy/manage.sh retrain --fresh   # after replacing the anchor set
 #

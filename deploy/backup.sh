@@ -2,7 +2,8 @@
 # Nightly snapshot of everything that can't be rebuilt: the app database
 # (accounts, images, ratings), the uploaded files, and head.pt (the current
 # drift state). The training store and anchor cache are rebuilt
-# automatically, so they're skipped. Keeps the last 14 days.
+# automatically, so they're skipped. So is server/data/quarantine, on
+# purpose: no extra copies of suspected illegal images. Keeps the last 14 days.
 #
 # Run by phorse-backup.timer. These copies sit on the same server, so they
 # guard against mistakes, not against losing the server -- pull copies

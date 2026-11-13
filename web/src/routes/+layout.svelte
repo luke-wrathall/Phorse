@@ -43,6 +43,6 @@
 	<hr />
 
 	<footer class="note">
-		<p><span>{whatis}</span>. <a href="/about">about</a> &nbsp;&middot;&nbsp; <a href="/rules">rules</a></p>
+		<p><span>{whatis}</span>. <a href="/about">about</a> &nbsp;&middot;&nbsp; <a href="/rules">rules</a> &nbsp;&middot;&nbsp; <a href="/report">report a problem</a></p>
 	</footer>
 </QueryClientProvider>

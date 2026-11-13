@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 
 from horse.embed import EMBEDDING_DIM
-from horse.storage import add_rating, connect
+from horse.storage import add_augment, add_rating, connect
 
 DEFAULT_APP_DB = "server/data/app.db"
 DEFAULT_TRAINING_DB = "horse/data/ratings.db"
@@ -52,6 +52,15 @@ def ingest(
             JOIN images i ON i.id = r.image_id
             """
         ).fetchall()
+        # The other rotations of every rated image (server/services/images.py
+        # stores them at upload), as training augmentations.
+        augment_rows = app.execute(
+            """
+            SELECT a.image_id, a.angle, a.embedding
+            FROM image_augments a
+            WHERE EXISTS (SELECT 1 FROM ratings r WHERE r.image_id = a.image_id)
+            """
+        ).fetchall()
     finally:
         app.close()
 
@@ -66,6 +75,10 @@ def ingest(
             add_rating(conn, str(image_id), str(user_id), embedding, float(rating), float(created_at))
             images.add(str(image_id))
             synced += 1
+        for image_id, angle, blob in augment_rows:
+            embedding = np.frombuffer(blob, dtype=np.float32)
+            if str(image_id) in images and embedding.shape == (EMBEDDING_DIM,):
+                add_augment(conn, str(image_id), int(angle), embedding)
     finally:
         conn.close()
 

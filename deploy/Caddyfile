@@ -23,5 +23,11 @@ REPLACE_ME.example.com {
 
 	log {
 		output file /var/log/caddy/phorse.log
+		# Logins are sent in this header. Caddy only redacts the standard
+		# auth headers by itself.
+		format filter {
+			request>headers>X-Horse-Token delete
+			wrap json
+		}
 	}
 }

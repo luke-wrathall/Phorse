@@ -121,6 +121,7 @@ def _run_retrain(fresh: bool = False) -> dict:
         fresh_epochs=cfg["RETRAIN_FRESH_EPOCHS"],
         hidden_dim=cfg["HEAD_HIDDEN"],
         prox_weight=cfg["RETRAIN_PROX_WEIGHT"],
+        augment_weight=cfg["AUGMENT_WEIGHT"],
     )
 
     model.reload_head()

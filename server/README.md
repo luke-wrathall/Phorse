@@ -38,7 +38,7 @@ python -m server.retrain            # or a single cycle, on demand
 |---|---|
 | `__init__.py` | `create_app()` factory — config, CORS, blueprints, error handlers |
 | `config.py` | env-driven config (`HORSE_*`) |
-| `db.py` | sqlite connection-per-request + schema (`users`, `images`, `ratings`, `invites`) |
+| `db.py` | sqlite connection-per-request + schema (`users`, `images`, `image_augments`, `ratings`, `invites`, `reports`, `upload_blocks`, `rate_events`, `pauses`) |
 | `security.py` | password hashing + JWT + `@require_auth` (also refuses banned accounts and tokens older than a password reset) |
 | `errors.py` | `ApiError` → JSON |
 | `blueprints/` | HTTP layer only — parse request, call a service, jsonify |
@@ -46,7 +46,7 @@ python -m server.retrain            # or a single cycle, on demand
 | `scheduler.py` | `python -m server.scheduler` — automatic retrain loop (separate process) |
 | `retrain.py` | `python -m server.retrain` — one retrain cycle on demand |
 | `invites.py` | `python -m server.invites` — create / list / revoke invite codes; prints `/join/<code>` signup links |
-| `admin.py` | `python -m server.admin` — moderation: `users`, `posts`, `delete-post`, `ban [--purge]`, `unban`, `set-password` (`services/moderation.py`) |
+| `admin.py` | `python -m server.admin` — moderation: `status`, `reports`, `resolve`, `blocks`, `users`, `posts`, `review-link`, `hide`, `restore`, `quarantine`, `delete-post`, `ban [--purge]`, `unban`, `set-password`, `pause`, `unpause`, `purge-rejected-files` (`services/moderation.py`) |
 
 On the server, run these through `sudo bash /srv/phorse/deploy/manage.sh invites|admin|retrain ...`, which loads the env and runs as the `phorse` user.
 
@@ -69,7 +69,8 @@ On the server, run these through `sudo bash /srv/phorse/deploy/manage.sh invites
 Two, on purpose:
 
 - **`server/data/app.db`** (here) — users, uploaded-image metadata +
-  cached embeddings, per-user ratings.
+  cached embeddings (plus the other three upload-time rotations' embeddings
+  in `image_augments`, used as training augmentations), per-user ratings.
 - **`horse/data/ratings.db`** (`horse.storage`) — the training store
   `horse.train` reads.
 

@@ -60,6 +60,20 @@ def _bump_mtime(path) -> None:
     os.utime(path, (mtime, mtime))
 
 
+def test_scoring_does_not_load_clip(app):
+    """The scheduler only ever scores cached embeddings; it must not end up
+    holding a second copy of CLIP next to the API's."""
+    from server.services import model
+
+    with app.app_context():
+        model.score_embedding(_probe())
+        model.reload_head()
+        assert model.head_loaded() is False
+        assert model.embedder_loaded() is False
+        model.embed_image(Image.new("RGB", (8, 8)))
+        assert model.embedder_loaded() is True
+
+
 def test_no_checkpoint_means_untrained_head(app):
     from server.services import model
 
